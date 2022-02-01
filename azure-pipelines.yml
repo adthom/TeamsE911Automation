@@ -1,0 +1,63 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+
+- task: PowerShell@2
+  displayName: 'Install MicrosoftTeams Module'
+  inputs:
+    targetType: 'inline'
+    script: |
+      Install-Module -Name MicrosoftTeams -Scope CurrentUser -RequiredVersion 3.1.0
+
+- task: PowerShell@2
+  displayName: 'Build Module'
+  inputs:
+    targetType: 'inline'
+    script: |
+      Import-Module -Name MicrosoftTeams -RequiredVersion 3.1.0
+      . "$($env:SYSTEM_DEFAULTWORKINGDIRECTORY)/modules/TeamsE911Automation/build/build.ps1"
+
+- task: PowerShell@2
+  displayName: 'Build Scripts'
+  inputs:
+    targetType: 'inline'
+    script: |
+      Import-Module -Name MicrosoftTeams -RequiredVersion 3.1.0
+      . "$($env:SYSTEM_DEFAULTWORKINGDIRECTORY)/modules/TeamsE911Automation/build/buildscript.ps1"
+
+- task: CopyFiles@2
+  displayName: 'Copy Module to Staging'
+  inputs:
+    SourceFolder: '$(System.DefaultWorkingDirectory)/modules/TeamsE911Automation/release'
+    Contents: '**/!(Scripts)/**'
+    TargetFolder: '$(build.artifactstagingdirectory)/module'
+    CleanTargetFolder: true
+    OverWrite: true
+
+- task: CopyFiles@2
+  displayName: 'Copy Scripts to Staging'
+  inputs:
+    SourceFolder: '$(System.DefaultWorkingDirectory)/modules/TeamsE911Automation/release/Scripts'
+    Contents: '*'
+    TargetFolder: '$(build.artifactstagingdirectory)/scripts'
+    CleanTargetFolder: true
+    OverWrite: true
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish Module'
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)/module'
+    ArtifactName: 'TeamsE911AutomationModuleRelease'
+    publishLocation: 'Container'
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish Scripts'
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)/scripts'
+    ArtifactName: 'TeamsE911AutomationScriptsRelease'
+    publishLocation: 'Container'
+    
