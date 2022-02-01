@@ -13,12 +13,12 @@ function Get-NewCivicAddressCommand {
     process {
         if (![string]::IsNullOrWhiteSpace($NetworkObject.SkipMapsLookup) -and [System.Convert]::ToBoolean($NetworkObject.SkipMapsLookup)) {
             Write-Verbose "Skipping Azure Maps Validation..."
-            $HouseNumber = $NetworkObject.Address -replace '^.*(\d+\S*).*$', '$1'
+            $HouseNumber = $NetworkObject.Address -replace '^.*?(\d+\S*)\s+.*$', '$1'
             $StreetName = $NetworkObject.Address -replace [regex]::Escape($HouseNumber), ''
 
             $AddressParams = @{
                 HouseNumber     = $HouseNumber
-                StreetName      = $StreetName
+                StreetName      = $StreetName.Trim()
                 City            = $NetworkObject.City
                 StateOrProvince = $NetworkObject.StateOrProvince
                 CompanyName     = $NetworkObject.CompanyName
@@ -76,11 +76,11 @@ function Get-NewCivicAddressCommand {
                 $Warned = $true
             }
             if ($NetworkObject.Latitude -ne 0 -and $NetworkObject.Longitude -ne 0) {
-                if ((Compare-DoubleFuzzy $NetworkObject.Latitude $AzureMapsAddress.Latitude)) {
+                if (!(Compare-DoubleFuzzy $NetworkObject.Latitude $AzureMapsAddress.Latitude)) {
                     Write-Warning "MapsValidation: Provided Latitude: '$($NetworkObject.Latitude)' does not match Azure Maps Latitude: '$($AzureMapsAddress.Latitude)'!"
                     $Warned = $true
                 }
-                if ((Compare-DoubleFuzzy $NetworkObject.Longitude $AzureMapsAddress.Longitude)) {
+                if (!(Compare-DoubleFuzzy $NetworkObject.Longitude $AzureMapsAddress.Longitude)) {
                     Write-Warning "MapsValidation: Provided Longitude: '$($NetworkObject.Longitude)' does not match Azure Maps Longitude: '$($AzureMapsAddress.Longitude)'!"
                     $Warned = $true
                 }
