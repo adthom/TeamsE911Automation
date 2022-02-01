@@ -26,6 +26,10 @@ function Get-AzureMapsValidAddress {
         $CountryOrRegion
     )
     begin {
+        if ([string]::IsNullOrEmpty($env:AZUREMAPS_API_KEY)) {
+            throw "Could not find AZUREMAPS_API_KEY, be sure to set env var before executing"
+        }
+
         # we can also do AAD auth to this as well, (maybe MSI? Unsure how we should set, just using env var for now)
         $ApiKey = $env:AZUREMAPS_API_KEY
 
