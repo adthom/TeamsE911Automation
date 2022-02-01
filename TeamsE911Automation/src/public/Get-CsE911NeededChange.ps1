@@ -146,6 +146,14 @@ function Get-CsE911NeededChange {
                     $validMatch = $Row | Confirm-NetworkObjectMatch -Cached $CachedNetworkObject -LocationCache $locationCache
                     if ($validMatch) {
                         Write-Verbose "${RowName}: NetworkObject Match Found!"
+                        # add row with hash to change objects to prevent later reprocessing
+                        $ChangeObject = [PSCustomObject]@{
+                            Id          = $RowId
+                            UpdateType  = 'Source'
+                            ProcessInfo = @($RowHash, $RowString) -join ';'
+                            DependsOn   = $RowDependencies -join ';'
+                        }
+                        $ChangeObjects.Add($ChangeObject) | Out-Null
                         continue
                     }
                     Write-Verbose "${RowName}: NetworkObject exists, but has changed!"
