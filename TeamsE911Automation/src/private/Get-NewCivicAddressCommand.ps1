@@ -55,7 +55,8 @@ function Get-NewCivicAddressCommand {
 
             $Warned = $false
             # write warnings for changes from input
-            if ($NetworkObject.Address -ne ($AzureAddress = ("{0} {1}" -f $AzureMapsAddress.HouseNumber, $AzureMapsAddress.StreetName))) {
+            $AzureAddress = "{0} {1}" -f $AzureMapsAddress.HouseNumber, $AzureMapsAddress.StreetName
+            if ($NetworkObject.Address -ne $AzureAddress) {
                 Write-Warning "MapsValidation: Provided Address: '$($NetworkObject.Address)' does not match Azure Maps Address: '$($AzureAddress)'!"
                 $Warned = $true
             }

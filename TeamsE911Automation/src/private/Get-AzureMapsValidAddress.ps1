@@ -1,4 +1,5 @@
 function Get-AzureMapsValidAddress {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute("PSUseCompatibleTypes", "", MessageId = "System.Net.Http.HttpClient loaded via module manifest")]
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true, Position = 0, ValueFromPipeLineByPropertyName = $true)]

@@ -1,4 +1,5 @@
 function ConvertTo-QueryString {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute("PSUseCompatibleTypes", "", MessageId = "System.Web.HttpUtility loaded via module manifest")]
     [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]

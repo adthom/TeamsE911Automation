@@ -1,4 +1,5 @@
 function Get-CsE911NeededChange {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute("PSUseCompatibleTypes", "", MessageId = "System.Net.Http.HttpClient loaded via module manifest")]
     [CmdletBinding()]
     param (
         # Parameter help description

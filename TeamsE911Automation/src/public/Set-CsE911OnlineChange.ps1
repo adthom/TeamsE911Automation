@@ -75,7 +75,8 @@ function Set-CsE911OnlineChange {
                     $ChangeCommand = $Change.ProcessInfo
                     try {
                         Write-Verbose $ChangeCommand
-                        Invoke-Expression -Command $ChangeCommand -ErrorAction Stop | Out-Null
+                        $CommandScript = [ScriptBlock]::Create($ChangeCommand)
+                        Invoke-Command -ScriptBlock $CommandScript -NoNewScope -ErrorAction Stop | Out-Null
                         $ProcessedChanges.Add($Change) | Out-Null
                     }
                     catch {
