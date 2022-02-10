@@ -1,7 +1,10 @@
 function Get-CsLisLocationCache {
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param ()
+    param (
+        [switch]
+        $PopulateUsageData
+    )
     begin {
         try {
             [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
@@ -9,11 +12,16 @@ function Get-CsLisLocationCache {
         catch {
             throw "Run Connect-MicrosoftTeams prior to executing this script!"
         }
+        $LocationParams = @{}
+        if ($PopulateUsageData) {
+            $LocationParams.PopulateNumberOfTelephoneNumbers = $true
+            $LocationParams.PopulateNumberOfVoiceUsers = $true
+        }
     }
     process {
         $LocationCache = @{}
         # assuming we have valid session, use my checks before hand
-        $locations = Get-CsOnlineLisLocation
+        $locations = Get-CsOnlineLisLocation @LocationParams
         foreach ($location in $locations) {
             $address = ConvertTo-CsE911Address -LisAddress $location
             $hashCode = Get-CsE911LocationHashCode -Address $address -Location $location.Location

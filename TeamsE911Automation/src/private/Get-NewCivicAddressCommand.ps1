@@ -76,7 +76,7 @@ function Get-NewCivicAddressCommand {
                 Write-Warning "MapsValidation: Provided Country: '$($NetworkObject.CountryOrRegion)' does not match Azure Maps Country: '$($AzureMapsAddress.Country)'!"
                 $Warned = $true
             }
-            if ($NetworkObject.Latitude -ne 0 -and $NetworkObject.Longitude -ne 0) {
+            if (![string]::IsNullOrEmpty($NetworkObject.Latitude) -and ![string]::IsNullOrEmpty($NetworkObject.Longitude) -and $NetworkObject.Latitude -ne 0 -and $NetworkObject.Longitude -ne 0) {
                 if (!(Compare-DoubleFuzzy $NetworkObject.Latitude $AzureMapsAddress.Latitude)) {
                     Write-Warning "MapsValidation: Provided Latitude: '$($NetworkObject.Latitude)' does not match Azure Maps Latitude: '$($AzureMapsAddress.Latitude)'!"
                     $Warned = $true

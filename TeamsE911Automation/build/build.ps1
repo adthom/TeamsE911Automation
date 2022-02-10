@@ -209,7 +209,7 @@ foreach ($import in @($Private + $Public)) {
     $PS1Path = $import.FullName -replace $replacePattern, ''
     Add-Content -Path $moduleFile -Value ". `"`$PSScriptRoot${PS1Path}`""
 }
-if (![string]::IsNullOrWhiteSpace(($AdditionalModuleChecks = Get-Content -Path "${PSScriptRoot}\modulechecks.ps1"))) {
+if (![string]::IsNullOrWhiteSpace(($AdditionalModuleChecks = Get-Content -Path "${PSScriptRoot}\modulechecks.ps1" -ErrorAction SilentlyContinue))) {
     Add-Content -Path $moduleFile -Value ""
     Add-Content -Path $moduleFile -Value $AdditionalModuleChecks
 }

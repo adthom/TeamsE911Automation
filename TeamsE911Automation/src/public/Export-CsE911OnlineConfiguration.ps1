@@ -20,7 +20,7 @@ function Export-CsE911OnlineConfiguration {
         try {
             $addressCache = Get-CsLisCivicAddressCache -ErrorAction Stop
             Write-Verbose "Cached $($addressCache.Keys.Count) Civic Addresses"
-            $locationCache = Get-CsLisLocationCache -ErrorAction Stop
+            $locationCache = Get-CsLisLocationCache -PopulateUsageData -ErrorAction Stop
             Write-Verbose "Cached $($locationCache.Keys.Count) Locations"
             $networkObjectCache = Get-CsLisNetworkObjectCache -ErrorAction Stop
             Write-Verbose "Cached $($networkObjectCache.Keys.Count) Network Objects"
@@ -68,7 +68,21 @@ function Export-CsE911OnlineConfiguration {
 
             $joinedItems[$CivicAddress][$Location] += $NetworkObject
         }
-
+        # add a blank network object for output if none was present
+        $EmptyLocations = @()
+        foreach ($CA in $joinedItems.Keys) {
+            foreach ($Location in $joinedItems[$CA].Keys) {
+                if ($joinedItems[$CA][$Location] -is [object[]] -and
+                    $joinedItems[$CA][$Location].Count -eq 0 -and
+                    ($Location.NumberOfVoiceUsers + $Location.NumberOfTelephoneNumbers -gt 0)) {
+                    $EmptyLocations += $Location
+                }
+            }
+        }
+        foreach ($EmptyLocation in $EmptyLocations) {
+            $CivicAddress = $joinedItems.Keys | Where-Object { $joinedItems[$_].ContainsKey($EmptyLocation) }
+            $joinedItems[$CivicAddress][$EmptyLocation] += $null
+        }
         foreach ($CivicAddress in $joinedItems.Keys) {
             foreach ($Location in $joinedItems[$CivicAddress].Keys) {
                 foreach ($NetworkObject in $joinedItems[$CivicAddress][$Location]) {

@@ -263,3 +263,5 @@ __pycache__/
 
 # skip secrets file
 scripts/test_secrets.ps1
+scripts/test_data_new.csv
+scripts/test_data_results.csv

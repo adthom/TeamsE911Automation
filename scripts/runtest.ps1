@@ -4,7 +4,10 @@ param (
 
     [ValidateSet("Default", "REST", "Legacy", IgnoreCase = $true)]
     [string]
-    $Endpoint = "Default"
+    $Endpoint = "Default",
+
+    [string]
+    $OverrideTest = ""
 )
 
 try {
@@ -91,6 +94,12 @@ try {
 
     # run test script(s)
     $Tests = Get-ChildItem -Path . -Recurse -File -Filter '*.ps1' | Where-Object { $_.BaseName -match '^test(\d+)?$' }
+    if (![string]::IsNullOrEmpty($OverrideTest)) {
+        $Tests = $Tests | Where-Object { $_.BaseName -eq $OverrideTest }
+        if ($Tests.Count -eq 0) {
+            Write-Warning "No tests found matching the name '$OverrideTest'!"
+        }
+    }
     foreach ($Test in $Tests) {
         Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
         Write-Information ""
