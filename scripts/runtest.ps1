@@ -73,7 +73,8 @@ function Remove-CsE911Configuration {
     (Get-CsOnlineLisPort) | Where-Object { $_.ChassisID -and $_.PortID } | ForEach-Object { Remove-CsOnlineLisPort -PortId $_.PortID -ChassisID $_.ChassisID | Out-Null }
     (Get-CsOnlineLisWirelessAccessPoint) | Where-Object { $_.BSSID } | ForEach-Object { Remove-CsOnlineLisWirelessAccessPoint -BSSID $_.BSSID | Out-Null }
     $Addresses = Get-CsOnlineLisCivicAddress -PopulateNumberOfVoiceUsers -PopulateNumberOfTelephoneNumbers
-    (Get-CsOnlineLisLocation) | Where-Object { $_.LocationId -notin $Addresses.DefaultLocationId } | ForEach-Object {
+    (Get-CsOnlineLisLocation) | Where-Object { $_.LocationId -notin $Addresses.DefaultLocationId -and 
+        $null -ne (Get-CsOnlineLisCivicAddress -CivicAddressId $_.CivicAddressId -ErrorAction SilentlyContinue)} | ForEach-Object {
         Remove-CsOnlineLisLocation -LocationId $_.LocationId | Out-Null
     }
     $Addresses | Where-Object { $_.NumberOfVoiceUsers -le 0 -and $_.NumberOfTelephoneNumbers -le 0 } | ForEach-Object {

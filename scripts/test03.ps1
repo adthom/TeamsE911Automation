@@ -25,7 +25,7 @@ Write-Information "$($RawInput1.Count) inputs provided to pipeline"
 Write-Information "$($RawOutput1.Count) outputs generated from pipeline"
 
 Write-Information "Exporting Configuration..."
-$RawOutput2 = Export-CsE911OnlineConfiguration -Verbose:$Verbose
+$RawOutput2 = Get-CsE911OnlineConfiguration -Verbose:$Verbose
 Write-Information ""
 Write-Information "$($RawOutput2.Count) outputs generated from pipeline"
 

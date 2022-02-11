@@ -12,7 +12,9 @@ function Get-CsLisLocationCache {
         catch {
             throw "Run Connect-MicrosoftTeams prior to executing this script!"
         }
-        $LocationParams = @{}
+        $LocationParams = @{
+            ResultSize = [Int32]::MaxValue
+        }
         if ($PopulateUsageData) {
             $LocationParams.PopulateNumberOfTelephoneNumbers = $true
             $LocationParams.PopulateNumberOfVoiceUsers = $true
@@ -24,7 +26,11 @@ function Get-CsLisLocationCache {
         $locations = Get-CsOnlineLisLocation @LocationParams
         foreach ($location in $locations) {
             $address = ConvertTo-CsE911Address -LisAddress $location
-            $hashCode = Get-CsE911LocationHashCode -Address $address -Location $location.Location
+            $locationKey = $location.Location
+            if ($PopulateUsageData) {
+                $locationKey += $location.LocationId
+            }
+            $hashCode = Get-CsE911LocationHashCode -Address $address -Location $locationKey
             if ($null -eq $hashCode -or $LocationCache.ContainsKey($hashCode)) {
                 continue
             }

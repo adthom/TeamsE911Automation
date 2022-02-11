@@ -1,6 +1,9 @@
-function Export-CsE911OnlineConfiguration {
+function Get-CsE911OnlineConfiguration {
     [CmdletBinding()]
-    param ()
+    param (
+        [switch]
+        $IncludeOrphanedConfiguration
+    )
 
     begin {
         try {
@@ -15,6 +18,11 @@ function Export-CsE911OnlineConfiguration {
         $locationCache = @{}
         $networkObjectCache = @{}
         $joinedItems = @{}
+
+        if ($IncludeOrphanedConfiguration) {
+            $OrphanedLocations = [Collections.Generic.List[object]]::new()
+            $OrphanedNetworkObjects = [Collections.Generic.List[object]]::new()
+        }
 
         Write-Verbose "Populating Caches..."
         try {
@@ -48,6 +56,9 @@ function Export-CsE911OnlineConfiguration {
             $CivicAddress = $addressCache.Values | Where-Object { $_.CivicAddressId -eq $Location.CivicAddressId }
             if ($null -eq $CivicAddress) {
                 Write-Warning "No CivicAddress with id of $($Location.CivicAddressId) was found, skipping conversion."
+                if ($IncludeOrphanedConfiguration -and !$OrphanedLocations.Contains($Location)) {
+                    $OrphanedLocations.Add($Location) | Out-Null
+                }
                 continue
             }
             $joinedItems[$CivicAddress].Add($Location, @()) | Out-Null
@@ -61,11 +72,20 @@ function Export-CsE911OnlineConfiguration {
             }
             $Location = $locationCache.Values | Where-Object { $_.LocationId -eq $NetworkObject.LocationId }
             if ($null -eq $Location) {
-                Write-Warning "No Location with id of $($NetworkObject.LocationId) was found, skipping conversion."
+                Write-Warning "No Location with id of $($NetworkObject.LocationId) was found, this object has been orphaned! Skipping conversion."
+                if ($IncludeOrphanedConfiguration -and !$OrphanedNetworkObjects.Contains($NetworkObject)) {
+                    $OrphanedNetworkObjects.Add($NetworkObject) | Out-Null
+                }
                 continue
             }
             $CivicAddress = $joinedItems.Keys | Where-Object { $joinedItems[$_].ContainsKey($Location) }
-
+            if ($null -eq $CivicAddress) {
+                Write-Warning "No Civic Address with id of $($CivicAddress.CivicAddressId) was found, this location has been orphaned! Skipping conversion."
+                if ($IncludeOrphanedConfiguration -and !$OrphanedLocations.Contains($Location)) {
+                    $OrphanedLocations.Add($Location) | Out-Null
+                }
+                continue
+            }
             $joinedItems[$CivicAddress][$Location] += $NetworkObject
         }
         # add a blank network object for output if none was present
@@ -128,7 +148,7 @@ function Export-CsE911OnlineConfiguration {
                         NetworkDescription      = $NetworkObject.Description
                         NetworkObjectType       = $NetworkObjectType
                         NetworkObjectIdentifier = $NetworkObjectIdentifier
-                        SkipMapsLookup          = $false
+                        SkipMapsLookup          = ![string]::IsNullOrEmpty($CivicAddress.Latitude) -and ![string]::IsNullOrEmpty($CivicAddress.Longitude) -and $CivicAddress.Latitude -ne 0 -and $CivicAddress.Longitude -ne 0
                         EntryHash               = ''
                         Warning                 = ''
                     }
@@ -138,6 +158,90 @@ function Export-CsE911OnlineConfiguration {
                     $NewAddress.EntryHash = $EntryHash
                     $NewAddress
                 }
+            }
+        }
+        if ($IncludeOrphanedConfiguration) {
+            foreach ($Location in $OrphanedLocations) {
+                if ($null -eq $Location) { continue }
+                $NewAddress = [PSCustomObject]@{
+                    CompanyName             = $Location.CompanyName
+                    CompanyTaxId            = $Location.CompanyTaxId
+                    Description             = $Location.CompanyName
+                    Location                = $Location.Location
+                    Address                 = (ConvertTo-CsE911AddressString -CivicAddress $Location)
+                    City                    = $Location.City
+                    StateOrProvince         = $Location.StateOrProvince
+                    PostalCode              = $Location.PostalCode
+                    CountryOrRegion         = $Location.CountryOrRegion
+                    Latitude                = $Location.Latitude
+                    Longitude               = $Location.Longitude
+                    ELIN                    = $Location.ELIN
+                    NetworkDescription      = ''
+                    NetworkObjectType       = 'Unknown'
+                    NetworkObjectIdentifier = ''
+                    SkipMapsLookup          = ![string]::IsNullOrEmpty($Location.Latitude) -and ![string]::IsNullOrEmpty($Location.Longitude) -and $Location.Latitude -ne 0 -and $Location.Longitude -ne 0
+                    EntryHash               = ''
+                    Warning                 = 'ORPHANED'
+                }
+
+                # Getting Hash because item already exists online
+                $EntryHash = Get-CsE911RowHash -Row $NewAddress
+                $NewAddress.EntryHash = $EntryHash
+                $NewAddress
+            }
+            foreach ($NetworkObject in $OrphanedNetworkObjects) {
+                if ($null -eq $NetworkObject) { continue }
+                if ($NetworkObject.PortId) {
+                    # port
+                    $NetworkObjectType = 'Port'
+                    $NetworkObjectIdentifier = @($NetworkObject.ChassisID, $NetworkObject.PortID) -join ';'
+                }
+                elseif ($NetworkObject.ChassisId) {
+                    # switch
+                    $NetworkObjectType = 'Switch'
+                    $NetworkObjectIdentifier = $NetworkObject.ChassisId
+                }
+                elseif ($NetworkObject.Subnet) {
+                    # Subnet
+                    $NetworkObjectType = 'Subnet'
+                    $NetworkObjectIdentifier = $NetworkObject.Subnet
+                }
+                elseif ($NetworkObject.Bssid) {
+                    # WirelessAccessPoint
+                    $NetworkObjectType = 'WirelessAccessPoint'
+                    $NetworkObjectIdentifier = $NetworkObject.Bssid
+                }
+                else {
+                    # return empty string if no match
+                    $NetworkObjectType = 'Unknown'
+                    $NetworkObjectIdentifier = ''
+                }
+
+                $NewAddress = [PSCustomObject]@{
+                    CompanyName             = ''
+                    CompanyTaxId            = ''
+                    Description             = ''
+                    Location                = ''
+                    Address                 = ''
+                    City                    = ''
+                    StateOrProvince         = ''
+                    PostalCode              = ''
+                    CountryOrRegion         = ''
+                    Latitude                = ''
+                    Longitude               = ''
+                    ELIN                    = ''
+                    NetworkDescription      = $NetworkObject.Description
+                    NetworkObjectType       = $NetworkObjectType
+                    NetworkObjectIdentifier = $NetworkObjectIdentifier
+                    SkipMapsLookup          = $false
+                    EntryHash               = ''
+                    Warning                 = 'ORPHANED'
+                }
+
+                # Getting Hash because item already exists online
+                $EntryHash = Get-CsE911RowHash -Row $NewAddress
+                $NewAddress.EntryHash = $EntryHash
+                $NewAddress
             }
         }
     }

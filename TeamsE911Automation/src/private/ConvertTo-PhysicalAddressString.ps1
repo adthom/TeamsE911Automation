@@ -10,17 +10,17 @@ function ConvertTo-PhysicalAddressString {
     )
     process {
         try {
-            <#
-                clean up address to attempt to parse all typical formats, even if in Windows PowerShell
-                001122334455
-                00-11-22-33-44-55
-                0011.2233.4455 (only if using pwsh)
-                00:11:22:33:44:55 (only if using pwsh)
-                F0-E1-D2-C3-B4-A5
-                f0-e1-d2-c3-b4-a5 (only if using pwsh)
-            #>
-            $address = $address -replace '[:\.]', ''
-            $address = $address.ToUpper()
+            $addressParts = $address.ToUpper() -split '(\w{2})' | Where-Object { ![string]::IsNullOrEmpty($_) }
+            if ($addressParts.Count -ne 6) {
+                return $null
+            }
+            $address = $addressParts -join '-'
+            if ($addressParts[-1].EndsWith('*')) {
+                for ($i = 0; $i -lt ($addressParts.Count - 1); $i++) {
+                    if ($addressParts[$i] -notmatch '^[A-F0-9]{2}$') { return $null }
+                }
+                return $address
+            }
             $pa = [Net.NetworkInformation.PhysicalAddress]::Parse($address)
             if ($pa) {
                 [BitConverter]::ToString($pa.GetAddressBytes())

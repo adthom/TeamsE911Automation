@@ -8,7 +8,7 @@ This module contains 4 cmdlets:
 1. Get-CsE911NeededChange => This cmdlet processes all the LIS information provided in the source CSV, along with all LIS information already confiigured in Teams, determines what changes/updates are required and creates all the PowerShell one-liners to execute the changes/updates to the online and source environments
 2. Set-CsE911OnlineChange => This cmdlet executes all the changes/updates online (in Teams service)
 3. Set-CsE911SourceChange => This cmdlet executes all the changes/updates to the source (CSV) - this writes any Warnings or EntryHashes back to the source data that can then be exported to overwrite the source CSV with the latest updates. In the future, if the same CSV is processed, any rows with an EntryHash that matches the current row with no be re-processed.
-4. Export-CsE911OnlineConfiguration => This cmdlet allows exporting all information from Teams in the source data format required for the TeamsE911Automation module to process and can be used as a potential backup source file
+4. Get-CsE911OnlineConfiguration => This cmdlet allows exporting all information from Teams in the source data format required for the TeamsE911Automation module to process and can be used as a potential backup source file
 
 
 ## Below is a sample workflow leveraging CSV files

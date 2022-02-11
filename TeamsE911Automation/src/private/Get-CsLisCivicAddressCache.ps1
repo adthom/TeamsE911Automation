@@ -13,7 +13,7 @@ function Get-CsLisCivicAddressCache {
     process {
         $CivicAddressCache = @{}
         # assuming we have valid session, use my checks before hand
-        $civicAddresses = Get-CsOnlineLisCivicAddress
+        $civicAddresses = Get-CsOnlineLisCivicAddress -ResultSize ([Int32]::MaxValue)
         foreach ($civicAddress in $civicAddresses) {
             $address = ConvertTo-CsE911Address -LisAddress $civicAddress
             $hashCode = Get-CsE911CivicAddressHashCode -Address $address
