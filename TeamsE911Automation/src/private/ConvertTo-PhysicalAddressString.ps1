@@ -10,7 +10,8 @@ function ConvertTo-PhysicalAddressString {
     )
     process {
         try {
-            $addressParts = $address.ToUpper() -split '(\w{2})' | Where-Object { ![string]::IsNullOrEmpty($_) }
+            $address = $address.ToUpper() -replace '[^A-F0-9\*]',''
+            $addressParts = $address -split '(\w{2})' | Where-Object { ![string]::IsNullOrEmpty($_) }
             if ($addressParts.Count -ne 6) {
                 return $null
             }
