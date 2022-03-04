@@ -10,13 +10,13 @@ function ConvertTo-PhysicalAddressString {
     )
     process {
         try {
-            $address = $address.ToUpper() -replace '[^A-F0-9\*]',''
+            $address = $address.ToUpper() -replace '[^A-F0-9\*]', ''
             $addressParts = $address -split '(\w{2})' | Where-Object { ![string]::IsNullOrEmpty($_) }
             if ($addressParts.Count -ne 6) {
                 return $null
             }
             $address = $addressParts -join '-'
-            if ($addressParts[-1].EndsWith('*')) {
+            if ($addressParts[-1].EndsWith('*') -and $addressParts[-1].Length -in @(1, 2)) {
                 for ($i = 0; $i -lt ($addressParts.Count - 1); $i++) {
                     if ($addressParts[$i] -notmatch '^[A-F0-9]{2}$') { return $null }
                 }
@@ -35,3 +35,4 @@ function ConvertTo-PhysicalAddressString {
         }
     }
 }
+
