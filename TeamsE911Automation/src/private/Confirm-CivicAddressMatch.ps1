@@ -10,7 +10,10 @@ function Confirm-CivicAddressMatch {
         # Parameter help description
         [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
         [PSObject]
-        $New
+        $New,
+
+        [switch]
+        $NoDescription
     )
 
     begin {
@@ -21,11 +24,13 @@ function Confirm-CivicAddressMatch {
             "CompanyName",
             "CompanyTaxId",
             "CountryOrRegion",
-            "Description",
             "PostalCode",
             "StateOrProvince",
             "Address"
         )
+        if (!$NoDescription) {
+            $MatchProperties += "Description"
+        }
     }
 
     process {

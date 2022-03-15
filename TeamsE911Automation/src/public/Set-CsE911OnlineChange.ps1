@@ -7,63 +7,101 @@ function Set-CsE911OnlineChange {
         $PendingChange
     )
     begin {
+        $vsw = [Diagnostics.Stopwatch]::StartNew()
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
+
         try {
             [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
         }
         catch {
             throw "Run Connect-MicrosoftTeams prior to executing this script!"
         }
+        $DependencyTrees = [Collections.Generic.List[object]]::new()
         $DependencyLists = [Collections.Generic.List[object]]::new()
+        $PendingChanges = [Collections.Generic.List[object]]::new()
     }
     process {
-        # build dependency tree for each change
         foreach ($Change in $PendingChange) {
-            # intialize variables for loop
-            $ChangeIndex = -1
-            $DependencyList = $null
-            $Id = $Change.Id
-            $DependsOnIds = Get-DependencyListFromString $Change
-            foreach ($DependencyId in $DependsOnIds) {
-                if ($ChangeIndex -eq -1) {
-                    # check if this already has a matching dependency, find the index where this dependency is listed
-                    $DependencyList = $DependencyLists | Where-Object { $_ | Where-Object { $DependencyId -in $_.Id -or $DependencyId -in (Get-DependencyListFromString $_) } }
-                    if ($DependencyList) {
-                        for ($i = 0; $i -lt $DependencyLists.Count; $i++) {
-                            $List = $DependencyLists[$i]
-                            if ($DependencyId -in $List.Id -or $DependencyId -in (Get-DependencyListFromString $List)) {
-                                $ChangeIndex = $i
-                                $DependencyList = $List
-                                break
-                            }
-                        }
-                    }
+            if ([string]::IsNullOrEmpty($Change.DependsOn)) {
+                # validate this is a proper object, if not, pass through pipeline (out of order)
+                if ([string]::IsNullOrEmpty($Change.Id)) {
+                    Write-Warning "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $Change is not a valid pending change object!"
+                    Write-Output -InputObject $Change
+                    continue
                 }
+
+                # this is a root level change, add as root node
+                Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Adding pending change with ID of $($Change.Id) as a root of a dependency tree"
+                [void]$DependencyTrees.Add(
+                    [PSCustomObject]@{
+                        Change   = $Change
+                        Children = [Collections.Generic.List[object]]::new()
+                    })
+                continue
             }
-            # insert change into dependency array before any depending changes and after any dependent changes
-            $ChangeBeforeThisChange = @($DependencyList | Where-Object { $_ -and $_.Id -in $DependsOnIds -and $_.Id -ne $Id })
-            $ChangeAfterThisChange = @($DependencyList | Where-Object { $_ -notin $ChangeBeforeThisChange } | Where-Object { $_ -and $Change.Id -in (Get-DependencyListFromString $_) -and $_.Id -ne $Id })
-            $OtherChanges = @($DependencyList | Where-Object { $_ -and $_ -notin $ChangeBeforeThisChange -and $_ -notin $ChangeAfterThisChange -and $_.Id -ne $Id })
-            $DependencyList = [Collections.Generic.List[object]]::new()
-            if ($ChangeBeforeThisChange -and $ChangeBeforeThisChange.Count -gt 0) {
-                $DependencyList.AddRange($ChangeBeforeThisChange) | Out-Null
-            }
-            $DependencyList.Add($Change) | Out-Null
-            if ($OtherChanges -and $OtherChanges.Count -gt 0) {
-                $DependencyList.AddRange($OtherChanges) | Out-Null
-            }
-            if ($ChangeAfterThisChange -and $ChangeAfterThisChange.Count -gt 0) {
-                $DependencyList.AddRange($ChangeAfterThisChange) | Out-Null
-            }
-            if ($ChangeIndex -ge 0) {
-                $DependencyLists[$ChangeIndex] = $DependencyList
-            }
-            else {
-                $ChangeIndex = $DependencyLists.Count + 1
-                $DependencyLists.Add($DependencyList) | Out-Null
-            }
+            [void]$PendingChanges.Add(
+                [PSCustomObject]@{
+                    Change   = $Change
+                    Children = [Collections.Generic.List[object]]::new()
+                })
         }
     }
     end {
+        if ($DependencyTrees.Count -eq 0) {
+            Write-Warning "No pending online changes found!"
+            return
+        }
+        $i = 1
+        while ($true) {
+            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Adding pending changes with $i dependencies to their dependency tree"
+            $ChildDependencies = $PendingChanges.Where({ $_.Change.DependsOn.Split(';').Count -eq $i })
+            if ($ChildDependencies.Count -eq 0) {
+                break
+            }
+            foreach ($Child in $ChildDependencies) {
+                $WalkStack = [Collections.Generic.Stack[object]]::new()
+                $RootTrees = $DependencyTrees.Where({ $Child.Change.DependsOn.IndexOf($_.Change.Id) -gt -1 })
+                $TreesToPlace = $RootTrees.Count
+                # this should always be 1...
+                foreach ($Tree in $RootTrees) {
+                    [void]$WalkStack.Push($Tree)
+                }
+                while ($WalkStack.Count -gt 0 -and $TreesToPlace -gt 0) {
+                    $Current = $WalkStack.Pop()
+                    if ($Child.Change.DependsOn.IndexOf($Current.Change.Id) -gt -1) {
+                        # find any child node of current node upon which we depend
+                        $ChildrenTrees = $Current.Children.Where({ $Child.Change.DependsOn.IndexOf($_.Change.Id) -gt -1 })
+                        foreach ($ChildTree in $ChildrenTrees) {
+                            # add found child node dependencies to the stack (should never be more than one)
+                            [void]$WalkStack.Push($ChildTree)
+                        }
+                        # if we found a child node dependency, continue processing the stack
+                        if ($ChildrenTrees.Count -gt 0) { continue }
+                        # we have found where to place this node, add as child to current
+                        [void]$Current.Children.Add($Child)
+                        $TreesToPlace--
+                    }
+                }
+            }
+            $i++
+        }
+
+        foreach ($Tree in $DependencyTrees) {
+            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Turning dependency tree with root ID of $($Tree.Change.Id) into list"
+            $DependencyList = [Collections.Generic.List[object]]::new()
+            $WalkStack = [Collections.Generic.Stack[object]]::new()
+            [void]$DependencyList.Add($Tree.Change)
+            [void]$WalkStack.Push($Tree)
+            while ($WalkStack.Count -gt 0) {
+                $Current = $WalkStack.Pop()
+                foreach ($Child in $Current.Children) {
+                    [void]$DependencyList.Add($Child.Change)
+                    [void]$WalkStack.Push($Child)
+                }
+            }
+            [void]$DependencyLists.Add($DependencyList)
+        }
+
         # process pending changes
         foreach ($ChangeList in $DependencyLists) {
             $HasErrored = $false
@@ -74,7 +112,7 @@ function Set-CsE911OnlineChange {
                 if ($Change.UpdateType -eq 'Online') {
                     $ChangeCommand = $Change.ProcessInfo
                     try {
-                        Write-Verbose $ChangeCommand
+                        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $ChangeCommand"
                         $CommandScript = [ScriptBlock]::Create($ChangeCommand)
                         Invoke-Command -ScriptBlock $CommandScript -NoNewScope -ErrorAction Stop | Out-Null
                         $ProcessedChanges.Add($Change) | Out-Null
@@ -87,7 +125,7 @@ function Set-CsE911OnlineChange {
                     }
                 }
                 else {
-                    Write-Verbose "Source Change $($Change.ProcessInfo)"
+                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Source Change $($Change.ProcessInfo)"
                     $SourceChanges.Add($Change) | Out-Null
                 }
             }
@@ -122,5 +160,8 @@ function Set-CsE911OnlineChange {
                 $SourceChanges | Write-Output
             }
         }
+
+        $vsw.Stop()
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
     }
 }

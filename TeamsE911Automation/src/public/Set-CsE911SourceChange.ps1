@@ -12,22 +12,25 @@ function Set-CsE911SourceChange {
         $RawInput
     )
     begin {
+        $vsw = [Diagnostics.Stopwatch]::StartNew()
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
+
         $PendingSourceChanges = [Collections.Generic.List[object]]::new()
         $PendingSourceChangeRowHashes = @{}
         $FoundBlockingOnlineChanges = [Collections.Generic.List[string]]::new()
         $OnlineChangesThatCouldBlock = [Collections.Generic.List[string]]::new()
 
-        # Prepare RawInput for evaulation
-        # We only need to look to update input rows where changes have occurred
-        $UnchangedRows = @($RawInput | Where-Object { !(Confirm-RowHasChanged -Row $_) })
-        # write rows to outputstream early
-        $UnchangedRows | Write-Output
+        # # Prepare RawInput for evaulation
+        # # We only need to look to update input rows where changes have occurred
+        # $UnchangedRows = $RawInput.Where({ !(Confirm-RowHasChanged -Row $_) })
+        # # write rows to outputstream early
+        # Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Rows unchanged: $($UnchangedRows.Count)"
+        # $UnchangedRows | Write-Output
 
-        $UnprocessedRows = @($RawInput | Where-Object { $_ -notin $UnchangedRows })
+        # $UnprocessedRows = $RawInput.Where({ $_ -notin $UnchangedRows })
+        $UnprocessedRows = $RawInput
         $UnprocessedRowHash = @{}
         foreach ($Row in $UnprocessedRows) {
-            # $RowString = Get-CsE911RowString -Row $Row
-            # $UnprocessedRowHash[$RowString] = $Row
             $RowHash = Get-CsE911RowHash -Row $Row
             $UnprocessedRowHash[$RowHash] = $Row
         }
@@ -77,15 +80,18 @@ function Set-CsE911SourceChange {
     end {
         # output rows that have changed
         # removing the created dependency array
-        Write-Verbose "Remaining Pending: $($PendingSourceChanges.Count)"
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Rows updated: $($PendingSourceChanges.Count)"
         $PendingSourceChanges | Select-Object -Property * -ExcludeProperty ExpandedDependsOn | Write-Output
 
         foreach ($RowHash in $PendingSourceChangeRowHashes.Keys) {
             $UnprocessedRowHash.Remove($RowHash) | Out-Null
         }
         # output any remaining unprocessed rows where there is no dependency without updating the row hash
-        Write-Verbose "Remaining Unprocessed: $($UnprocessedRowHash.Values.Count)"
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Rows not yet processed or unchanged: $($UnprocessedRowHash.Values.Count)"
         $UnprocessedRowHash.Values | Write-Output
+
+        $vsw.Stop()
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
     }
 }
 

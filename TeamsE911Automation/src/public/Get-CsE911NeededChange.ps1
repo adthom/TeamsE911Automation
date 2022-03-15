@@ -12,6 +12,9 @@ function Get-CsE911NeededChange {
     )
 
     begin {
+        $vsw = [Diagnostics.Stopwatch]::StartNew()
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
+
         try {
             [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
         }
@@ -31,14 +34,14 @@ function Get-CsE911NeededChange {
         $PendingChanges = @{}
         $ChangeObjects = [Collections.Generic.List[object]]::new()
 
-        Write-Verbose "Populating Caches..."
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Populating Caches..."
         try {
             $addressCache = Get-CsLisCivicAddressCache -ErrorAction Stop
-            Write-Verbose "Cached $($addressCache.Keys.Count) Civic Addresses"
+            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Cached $($addressCache.Keys.Count) Civic Addresses"
             $locationCache = Get-CsLisLocationCache -ErrorAction Stop
-            Write-Verbose "Cached $($locationCache.Keys.Count) Locations"
+            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Cached $($locationCache.Keys.Count) Locations"
             $networkObjectCache = Get-CsLisNetworkObjectCache -ErrorAction Stop
-            Write-Verbose "Cached $($networkObjectCache.Keys.Count) Network Objects"
+            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Cached $($networkObjectCache.Keys.Count) Network Objects"
         }
         catch {
             throw $_
@@ -54,21 +57,21 @@ function Get-CsE911NeededChange {
             ErrorVariable       = "ErrorRecords"
         }
 
-        Write-Verbose "Validating Rows..."
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Validating Rows..."
     }
 
     process {
         foreach ($lc in $LocationConfiguration) {
             $RowName = "$($lc.CompanyName):$($lc.Location)"
-            Write-Verbose "Validating Object: $RowName..."
+            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Validating Object: $RowName..."
 
             if (!($HasChanges = Confirm-RowHasChanged -Row $lc)) {
                 # no changes to this row since last processing, skip
                 if (!$ForceOnlineCheck) {
-                    Write-Verbose "$RowName has not changed - skipping..."
+                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $RowName has not changed - skipping..."
                     continue
                 }
-                Write-Verbose "$RowName has not changed but ForceOnlineCheck is set..."
+                Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $RowName has not changed but ForceOnlineCheck is set..."
             }
 
             # reset any warnings from previous run if we have detected changes
@@ -77,12 +80,12 @@ function Get-CsE911NeededChange {
             }
 
             # validate row
-            Write-Verbose "${RowName}: validating input..."
+            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName}: validating input..."
             if (!(Confirm-CsE911Input $lc @StandardParams)) {
                 $Warnings = ($WarningRecords | Where-Object { !$lc.Warning.Contains($_) } ) -join ';'
-                Write-Verbose "${RowName}: input invalid"
+                Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName}: input invalid"
                 if (!$HasChanges) {
-                    Write-Verbose "${RowName}: aborting further processing"
+                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName}: aborting further processing"
                     continue
                 }
                 if ([string]::IsNullOrEmpty($lc.Warning)) {
@@ -93,7 +96,7 @@ function Get-CsE911NeededChange {
                 }
             }
             else {
-                Write-Verbose "${RowName}: input valid"
+                Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName}: input valid"
             }
 
             $nHash = Get-CsE911NetworkObjectHashCode $lc
@@ -109,25 +112,30 @@ function Get-CsE911NeededChange {
     }
 
     end {
-        Write-Verbose "Processing Rows..."
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Processing Rows..."
         # find duplicate network objects
-        $DuplicatedNetworkObjects = $ProcessedNetworks.Values | Where-Object { $_.Count -gt 1 }
+        $DuplicatedNetworkObjects = $ProcessedNetworks.Values.Where({ $_.Count -gt 1 })
         if ($DuplicatedNetworkObjects.Count -gt 0) {
-            Write-Warning "$($DuplicatedNetworkObjects.Count) conflicting network objects found!"
+            Write-Warning "$(($DuplicatedNetworkObjects.ForEach('Count') | Measure-Object -Sum).Sum) conflicting network objects found!"
         }
         foreach ($ConflictedRow in $DuplicatedNetworkObjects) {
-            $ConflictWarning = "DuplicateNetworkObject: $($ConflictedRow.NetworkObjectType): $($ConflictedRow.NetworkObjectIdentifier) exists in another row"
-            if ([string]::IsNullOrEmpty($ConflictedRow.Warning)) {
-                $ConflictedRow.Warning = $ConflictWarning
-            }
-            else {
-                $ConflictedRow.Warning += ";$ConflictWarning"
+            # this should be a nested loop, since we expecte more than one object.
+            foreach ($ConflictedNetworkObject in $ConflictedRow) {
+                $OtherObjects = $ConflictedRow.Where({ $_ -ne $ConflictedNetworkObject })
+                $ConflictsWithString = $OtherObjects.NetworkObjectIdentifier -join ','
+                $ConflictWarning = "DuplicateNetworkObject: $($ConflictedNetworkObject.NetworkObjectType): $($ConflictedNetworkObject.NetworkObjectIdentifier) conflicts with $ConflictsWithString in other row$(if($OtherObjects.Count -gt 1){'s'})"
+                if ([string]::IsNullOrEmpty($ConflictedNetworkObject.Warning)) {
+                    $ConflictedNetworkObject.Warning = $ConflictWarning
+                }
+                else {
+                    $ConflictedNetworkObject.Warning += ";$ConflictWarning"
+                }
             }
         }
 
         foreach ($Row in $Rows) {
             $RowName = "$($Row.CompanyName):$($Row.Location)"
-            Write-Verbose "Processing $RowName..."
+            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Processing $RowName..."
             # need to remove warning message for hashing... storing to re-add later
             $ExistingWarnings = $Row.Warning
             $Row.Warning = ""
@@ -146,7 +154,7 @@ function Get-CsE911NeededChange {
                     $CachedNetworkObject = $networkObjectCache[$networkObjectHashCode]
                     $validMatch = $Row | Confirm-NetworkObjectMatch -Cached $CachedNetworkObject -LocationCache $locationCache
                     if ($validMatch) {
-                        Write-Verbose "${RowName}: NetworkObject Match Found!"
+                        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName}: NetworkObject Match Found!"
                         # add row with hash to change objects to prevent later reprocessing
                         $ChangeObject = [PSCustomObject]@{
                             Id          = $RowId
@@ -157,10 +165,10 @@ function Get-CsE911NeededChange {
                         $ChangeObjects.Add($ChangeObject) | Out-Null
                         continue
                     }
-                    Write-Verbose "${RowName}: NetworkObject exists, but has changed!"
+                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName}: NetworkObject exists, but has changed!"
                 }
                 else {
-                    Write-Verbose "${RowName}: NetworkObject is new!"
+                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName}: NetworkObject is new!"
                 }
                 # create change id:
                 $NetworkChangeId = [Guid]::NewGuid().Guid
@@ -176,22 +184,22 @@ function Get-CsE911NeededChange {
                     $validMatch = $Row | Confirm-LocationMatch -Cached $CachedLocation
                     if ($validMatch) {
                         # create network object and point to found location id
-                        Write-Verbose "${RowName}: Location Match Found!"
+                        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName}: Location Match Found!"
                         $NetworkCommandParams['LocationId'] = $CachedLocation.LocationId
                         # no need to create location, nulling out hash
                         $LocationCommandParams = $null
                     }
                     else {
-                        Write-Verbose "${RowName}: Location exists, but has changed!"
+                        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName}: Location exists, but has changed!"
                     }
                 }
                 else {
-                    Write-Verbose "${RowName}: Location is new!"
+                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName}: Location is new!"
                 }
 
                 if (!$NetworkCommandParams['LocationId'] -and $PendingChanges.ContainsKey($locationHashCode)) {
                     # No need to create new change, as we already have one pending, just create the network object
-                    Write-Verbose "${RowName}: New Location command already created!"
+                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName}: New Location command already created!"
                     $LocationChangeIds = $PendingChanges[$locationHashCode]
                     $LocationChangeId = $LocationChangeIds[0] # first entry is location change, any subsequent are child dependencies
                     $LocationIdVariableName = '$' + $LocationChangeId -replace '-', ''
@@ -215,17 +223,17 @@ function Get-CsE911NeededChange {
                         $CachedCivicAddress = $addressCache[$addressHashCode]
                         $validMatch = $Row | Confirm-CivicAddressMatch -Cached $CachedCivicAddress
                         if ($validMatch) {
-                            Write-Verbose "${RowName}: Address Match Found!"
+                            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName}: Address Match Found!"
                             $LocationCommandParams['CivicAddressId'] = $CachedCivicAddress.CivicAddressId
                             $AddressCommandParams = $null
                         }
                         else {
-                            Write-Verbose "${RowName}: Address exists, but has changed!"
+                            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName}: Address exists, but has changed!"
                         }
                     }
                     if (!$LocationCommandParams['CivicAddressId'] -and $PendingChanges.ContainsKey($addressHashCode)) {
                         # No need to create new change, as we already have one pending, just create the network object
-                        Write-Verbose "${RowName}: New Address command already created!"
+                        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName}: New Address command already created!"
                         $CivicAddressChangeIds = $PendingChanges[$addressHashCode]
                         $CivicAddressChangeId = $CivicAddressChangeIds[0] # first entry is location change, any subsequent are child dependencies
                         $CivicAddressIdVariableName = '$' + $CivicAddressChangeId -replace '-', ''
@@ -246,7 +254,7 @@ function Get-CsE911NeededChange {
                         $ProcessInfo = $Row | Get-NewCivicAddressCommand @AddressCommandParams @StandardParams
                         if ($WarningRecords.Count -gt 0) {
                             $Warnings = $WarningRecords -join ';'
-                            Write-Verbose "${RowName} is invalid! $Warnings"
+                            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName} is invalid! $Warnings"
                             if ([string]::IsNullOrEmpty($Row.Warning)) {
                                 $Row.Warning = $Warnings
                             }
@@ -299,7 +307,7 @@ function Get-CsE911NeededChange {
                 }
             }
             else {
-                Write-Verbose "${RowName}: has warnings, skipping further processing!"
+                Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] ${RowName}: has warnings, skipping further processing!"
             }
 
             $RowString = Get-CsE911RowString -Row $Row     # rebuild row string to capture any added warnings
@@ -313,6 +321,9 @@ function Get-CsE911NeededChange {
         }
 
         $ChangeObjects | Write-Output
+
+        $vsw.Stop()
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
     }
 }
 

@@ -18,6 +18,8 @@ $srcPath = [IO.Path]::Combine($ProjectRoot, "src")
 $releasePath = [IO.Path]::Combine($ProjectRoot, "release", "Scripts")
 $PSScriptAnalyzerSettings = "${ProjectRoot}\PSScriptAnalyzer.psd1"
 
+New-Item -Path $releasePath -ItemType Directory -Force | Out-Null
+
 # Get Module Name from Project Folder Name
 $ModuleName = Split-Path -Path $ProjectRoot -Leaf
 
@@ -44,6 +46,32 @@ if ($null -ne $ModuleManifest['RequiredModules']) {
 }
 $RequiredModulesText = $RequiredModules.ToString()
 
+$ClassFiles = Get-ChildItem -Path ([IO.Path]::Combine($srcPath, "classes")) -Filter *.ps1 -File -ErrorAction SilentlyContinue
+$Classes = [Text.StringBuilder]::new()
+foreach ($ClassFile in $ClassFiles) {
+    $currClass = $ClassFile | Get-Content
+    foreach ($line in $currClass) {
+        [void]$Classes.AppendLine($line)
+    }
+}
+# # HACK: functions used in classes not currently working, manually adding for now
+# $ClassFunctions = Get-ChildItem -Path ([IO.Path]::Combine($srcPath, "private")) -Filter ConvertFrom*HashTable*.ps1 -File
+# foreach ($ClassFunction in $ClassFunctions) {
+#     $currClass = $ClassFunction | Get-Content
+#     foreach ($line in $currClass) {
+#         [void]$Classes.AppendLine($line)
+#     }
+# }
+
+foreach ($ClassFile in $ClassFiles) {
+    try {
+        . $ClassFile.FullName
+    }
+    catch {
+        Write-Error -Message "Failed to classes $($ClassFile.FullName): $_"
+    }
+}
+
 # Import all functions into current session
 $Privates = Get-ChildItem -Path ([IO.Path]::Combine($srcPath, "private")) -Filter *.ps1 -File
 $Publics = Get-ChildItem -Path ([IO.Path]::Combine($srcPath, "public")) -Filter *.ps1 -File
@@ -52,7 +80,7 @@ foreach ($import in @($Publics + $Privates)) {
         . $import.FullName
     }
     catch {
-        Write-Error -Message "Failed to import function $($import.fullname): $_"
+        Write-Error -Message "Failed to import function $($import.FullName): $_"
     }
 }
 
@@ -67,7 +95,7 @@ if ($null -eq $GetUsedLocalFunctions) {
 }
 
 # cleanup removed old builds
-Get-ChildItem -Path $releasePath -Filter *.ps1 | Where-Object { $_ -notin $Publics } | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $releasePath -Filter *.ps1 -ErrorAction SilentlyContinue | Where-Object { $_ -notin $Publics } | Remove-Item -Force -ErrorAction SilentlyContinue
 
 foreach ($file in $Publics) {
     $FunctionName = [IO.Path]::GetFileNameWithoutExtension($file.Name)
@@ -193,6 +221,10 @@ foreach ($file in $Publics) {
     }
     if (![string]::IsNullOrEmpty($params)) {
         $scriptSB.AppendLine($params) | Out-Null
+        $scriptSB.AppendLine() | Out-Null
+    }
+    if (![string]::IsNullOrEmpty($Classes.ToString())) {
+        $scriptSB.AppendLine($Classes.ToString()) | Out-Null
         $scriptSB.AppendLine() | Out-Null
     }
     if (![string]::IsNullOrEmpty($UsedFunctionStrings)) {

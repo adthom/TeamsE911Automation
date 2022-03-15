@@ -134,10 +134,19 @@ function GetUsedLocalFunctions {
     param (
         [ScriptBlock]
         $Script,
+
         [Collections.Generic.List[object]]
         $Functions = $null,
+
         [Collections.Generic.List[object]]
         $FoundFunctions = $null,
+
+        # [Collections.Generic.List[object]]
+        # $Types = $null,
+
+        # [Collections.Generic.List[object]]
+        # $FoundTypes = $null,
+
         [bool]
         $GetStrings = $true
     )
@@ -151,11 +160,17 @@ function GetUsedLocalFunctions {
             $Functions.Add($func) | Out-Null
         }
     }
-
     $FunctionName = $Functions | Where-Object { $_.ScriptBlock -eq $Script } | Select-Object -ExpandProperty Name
     if ($null -eq $FoundFunctions) {
         $FoundFunctions = [Collections.Generic.List[object]]::new()
     }
+
+    # if ($null -eq $Types) {
+    #     $Types = [Collections.Generic.List[object]]::new()
+    # }
+    # if ($null -eq $FoundTypes) {
+    #     $FoundTypes = [Collections.Generic.List[object]]::new()
+    # }
     $AlreadyFound = $FoundFunctions | Where-Object { $_.ScriptBlock -eq $Script -and $_.Name -eq $FunctionName }
     if (!$AlreadyFound) {
         $NamedCommandPredicate = {
@@ -180,6 +195,24 @@ function GetUsedLocalFunctions {
         $Ast = $Script.Ast
         $NamedCommandAstFound = $Ast.FindAll($NamedCommandPredicate, $true)
 
+        # $PowershellEnumClass = [AppDomain]::CurrentDomain.GetAssemblies().ForEach({ try { $_.GetTypes() } catch {} }).Where({ $_.Module.FullyQualifiedName -eq '<In Memory Module>' -and $_.IsPublic })
+        # $EnumAndClassDeclarations = $Ast.FindAll({param($Ast) $Ast -is [System.Management.Automation.Language.TypeDefinitionAst] },$true)
+        # $KnownClasses = $EnumAndClassDeclarations.Name
+        # this does not handle New-Object...
+        # $TypeExpressions = $Ast.FindAll({param($Ast) $Ast -is [System.Management.Automation.Language.TypeExpressionAst] -and $Ast.TypeName.FullName -in $KnownClasses },$true).TypeName.FullName | Sort-Object -Unique
+        # $TypeConstraints = $Ast.FindAll({param($Ast) $Ast -is [System.Management.Automation.Language.TypeConstraintAst] -and $Ast.TypeName.FullName -in $KnownClasses },$true).TypeName.FullName | Sort-Object -Unique
+        # $TypesToInclude = @($TypeConstraints) + @($TypeExpressions) | Sort-Object -Unique
+        # $TypesIncluded = [Collections.Generic.List[string]]::new()
+        # $TypeDefinitionStrings = [Collections.Generic.List[string]]::new()
+        # $TypesToIncludeS = [Collections.Generic.Stack[object]]::new()
+        # foreach ($Type in $TypesToInclude) {
+        #     $TypesToIncludeS.Push($Type)
+        # }
+        # while ($TypesToIncludeS.Count -gt 0) {
+        #     $Type = $TypesToIncludeS.Pop()
+        #     $Declaration = $EnumAndClassDeclarations.Where({$_.Name -eq $Type},'First',1)[0].Extent.Text
+        # }
+
         $AmpersandInvocationPredicate = {
             param([System.Management.Automation.Language.Ast]$Ast)
             $returnValue = $false
@@ -194,7 +227,7 @@ function GetUsedLocalFunctions {
             }
             $returnValue
         }
-        $Ast = $Function.ScriptBlock.Ast
+        # $Ast = $Function.ScriptBlock.Ast
         $AmpersandInvokedExpressions = $Ast.FindAll($AmpersandInvocationPredicate, $true)
         $InvokedCommandNamesFound = foreach ($aIE in $AmpersandInvokedExpressions) {
             $invoked = $aIE.CommandElements[0]
@@ -219,6 +252,7 @@ function GetUsedLocalFunctions {
         }
         $usedFunctions = $usedFunctions | Sort-Object -Property Name -Unique
         if ($GetStrings) {
+            # $TypeDefinitionStrings
             $usedFunctions | ForEach-Object { "function $($_.Name) {$([Environment]::NewLine)$($_.Definition.Trim([Environment]::NewLine))$([Environment]::NewLine)}" }
         }
         else {

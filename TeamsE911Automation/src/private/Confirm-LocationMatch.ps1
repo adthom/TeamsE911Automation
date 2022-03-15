@@ -24,7 +24,7 @@ function Confirm-LocationMatch {
 
     process {
         # Confirm CivicAddress matches
-        $DoesMatch = $DoesMatch -and (Confirm-CivicAddressMatch -New $New -Cached $Cached)
+        $DoesMatch = $DoesMatch -and (Confirm-CivicAddressMatch -New $New -Cached $Cached -NoDescription)
 
         for ($i = 0; $i -lt $MatchProperties.Count; $i++) {
             $Property = $MatchProperties[$i]

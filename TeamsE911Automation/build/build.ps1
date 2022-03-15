@@ -44,19 +44,19 @@ function AnalyzePSFile ([string]$Path, [string]$PSScriptAnalyzerSettings) {
             Write-Warning -Message "Found $($Issues.Count) issues in $([System.IO.Path]::GetFileNameWithoutExtension($Path))"
             foreach ($i in $Issues) {
                 Write-Information -MessageData "PSScriptAnalyzer - $($i.Severity.ToString().ToUpper()) - $($i.RuleName)"
-                Write-Information -MessageData "    Issue Text:"
+                Write-Information -MessageData '    Issue Text:'
                 $IssueText = $i.Extent.Text -split "`n"
                 for ($j = 0; $j -lt $IssueText.Count; $j++) {
                     $index = $j + $i.Extent.StartLineNumber
                     Write-Information -MessageData "    ${index}: $($IssueText[$j])"
                 }
             }
-            Write-Information -MessageData ""
+            Write-Information -MessageData ''
         }
     }
     catch {
-        Write-Warning -Message "PSScriptAnalyzerHadError: $($Path) - $($e.Message)"
-        Write-Warning -Message $e
+        Write-Warning -Message "PSScriptAnalyzerHadError: $($Path) - $($_.Exception.Message)"
+        Write-Warning -Message $_.Exception
     }
 }
 
@@ -67,9 +67,9 @@ $ProjectRoot = Split-Path -Path $PSScriptRoot -Parent
 $ModuleName = Split-Path -Path $ProjectRoot -Leaf
 
 # Setup Path/File Variables for use in build
-$srcPath = [IO.Path]::Combine($ProjectRoot, "src")
-$releasePath = [IO.Path]::Combine($ProjectRoot, "release", $ModuleName)
-$zipPath = [IO.Path]::Combine($ProjectRoot, "release")
+$srcPath = [IO.Path]::Combine($ProjectRoot, 'src')
+$releasePath = [IO.Path]::Combine($ProjectRoot, 'release', $ModuleName)
+$zipPath = [IO.Path]::Combine($ProjectRoot, 'release')
 $moduleFile = "${releasePath}\${ModuleName}.psm1"
 $moduleManifestFile = "${releasePath}\${ModuleName}.psd1"
 $srcModuleManifest = "${srcPath}\${ModuleName}.psd1"
@@ -82,7 +82,7 @@ if (($MajorVersion + $MinorVersion) -eq 0 -and $null -ne $ModuleManifest['Module
     if ( ($ModuleManifest['ModuleVersion'] -split '\.').Count -gt 1 ) {
         $MinorVersion = [int]($ModuleManifest['ModuleVersion'] -split '\.')[1]
     }
-    $BuildNumber = [int]([datetime]::Now.ToString("yy") + [datetime]::Now.DayOfYear)
+    $BuildNumber = [int]([datetime]::Now.ToString('yy') + [datetime]::Now.DayOfYear)
     if ( ($ModuleManifest['ModuleVersion'] -split '\.').Count -gt 2 ) {
         $CurrentBuildNumber = [int]($ModuleManifest['ModuleVersion'] -split '\.')[2]
         if ( ($ModuleManifest['ModuleVersion'] -split '\.').Count -gt 3 ) {
@@ -96,7 +96,7 @@ if (($MajorVersion + $MinorVersion) -eq 0 -and $null -ne $ModuleManifest['Module
         $Revision++
     }
 }
-$Version = "{0}.{1}.{2}.{3}" -f @(
+$Version = '{0}.{1}.{2}.{3}' -f @(
     $MajorVersion,
     $MinorVersion,
     $BuildNumber,
@@ -106,8 +106,8 @@ Update-ModuleManifest -Path $srcModuleManifest -ModuleVersion $Version
 AnalyzePSFile -Path $srcModuleManifest -PSScriptAnalyzerSettings $PSScriptAnalyzerSettings
 
 #Get public and private function definition files.
-$Public = @( Get-ChildItem -Path $srcPath\Public\*.ps1 -ErrorAction SilentlyContinue )
-$Private = @( Get-ChildItem -Path $srcPath\Private\*.ps1 -ErrorAction SilentlyContinue )
+$Public = @( Get-ChildItem -Path $srcPath\Public\*.ps1 -Recurse -ErrorAction SilentlyContinue )
+$Private = @( Get-ChildItem -Path $srcPath\Private\*.ps1 -Recurse -ErrorAction SilentlyContinue )
 $FunctionsToExport = $Public.BaseName
 
 $NewModuleManifestParams = @{
@@ -118,7 +118,7 @@ $NewModuleManifestParams = @{
     Author            = $Author
 }
 
-if ( [string]::IsNullOrEmpty($Company) -and $ModuleManifest['CompanyName'].ToLower() -ne "unknown" ) {
+if ( [string]::IsNullOrEmpty($Company) -and $ModuleManifest['CompanyName'].ToLower() -ne 'unknown' ) {
     $NewModuleManifestParams['CompanyName'] = $ModuleManifest['CompanyName']
 }
 if ( [string]::IsNullOrEmpty($Author) ) {
@@ -129,7 +129,7 @@ if ( [string]::IsNullOrEmpty($Author) ) {
 $Parameters = (Get-Command -Name Update-ModuleManifest).Parameters.Keys
 foreach ( $p in $Parameters ) {
     if ( $null -ne $ModuleManifest[$p] ) {
-        if ( $p -eq "PrivateData" ) {
+        if ( $p -eq 'PrivateData' ) {
             foreach ( $d in $ModuleManifest['PrivateData']['PSData'].Keys ) {
                 $PSData = $ModuleManifest['PrivateData']['PSData']
                 if ( $null -ne $PSData[$d] ) {
@@ -141,12 +141,12 @@ foreach ( $p in $Parameters ) {
                     }
                 }
                 if ( $PSData.Keys -gt 0 ) {
-                    [void] $NewModuleManifestParams.Add("PrivateData", $PSData)
+                    [void] $NewModuleManifestParams.Add('PrivateData', $PSData)
                 }
             }
         }
-        elseif ( $p -notin $NewModuleManifestParams.Keys -and $p -notin @("Copyright") ) {
-            if ( $p -ne "FunctionsToExport" -and $p.EndsWith("ToExport") -and $ModuleManifest[$p] -eq '*' ) {
+        elseif ( $p -notin $NewModuleManifestParams.Keys -and $p -notin @('Copyright') ) {
+            if ( $p -ne 'FunctionsToExport' -and $p.EndsWith('ToExport') -and $ModuleManifest[$p] -eq '*' ) {
                 [void] $NewModuleManifestParams.Add($p, @())
             }
             else {
@@ -161,9 +161,11 @@ if ( -not ( Test-Path -Path $releasePath -PathType Container) ) {
     New-Item -Path $releasePath -ItemType Directory | Out-Null
 }
 
+Get-ChildItem "${releasePath}/" -Recurse | Remove-Item -Recurse | Out-Null
+
 $srcPathPattern = [Regex]::Escape($srcPath)
 foreach ($srcFile in @($Public + $Private)) {
-    $Visibility = if ($srcFile -in $Public) { "PUBLIC" } else { "PRIVATE" }
+    $Visibility = if ($srcFile -in $Public) { 'PUBLIC' } else { 'PRIVATE' }
     Write-Information -MessageData "Building $Visibility function: $($srcFile.Name)"
     $targetFile = $srcFile.FullName -Replace $srcPathPattern, $releasePath
     $targetFolder = $srcFile.Directory.FullName -Replace $srcPathPattern, $releasePath
@@ -179,7 +181,14 @@ foreach ($srcFile in @($Public + $Private)) {
 
 # Cleanup Empty Files
 Get-ChildItem -Path $releasePath -Recurse -File | ForEach-Object {
-    if ( [string]::IsNullOrWhiteSpace( ( Get-Content -Path $_.FullName ) ) ) {
+    $Content = Get-Content -Path $_.FullName -Raw
+    if ( [string]::IsNullOrWhiteSpace( $Content ) ) {
+        Remove-Item -Path $_.FullName
+        continue
+    }
+    # remove files with no uncommented code
+    $Ast = [ScriptBlock]::Create($Content).Ast
+    if ($null -eq $Ast.ParamBlock -and $null -eq $Ast.DynamicParamBlock -and $null -eq $Ast.BeginBlock -and $null -eq $Ast.ProcessBlock -and ($null -eq $Ast.EndBlock -or $Ast.EndBlock.Extent.GetType().Name -eq 'EmptyScriptExtent')) {
         Remove-Item -Path $_.FullName
     }
 }
@@ -195,22 +204,39 @@ Get-ChildItem -Path $releasePath -Recurse -Directory | ForEach-Object {
 Set-Content -Path $moduleFile -Value "# $ModuleName"
 Add-Content -Path $moduleFile -Value "# Version: $Version"
 Add-Content -Path $moduleFile -Value "# $($NewModuleManifestParams['Copyright'])"
-Add-Content -Path $moduleFile -Value ""
-Add-Content -Path $moduleFile -Value "# Importing Module Members"
-Add-Content -Path $moduleFile -Value ""
+Add-Content -Path $moduleFile -Value ''
+
+
+$ClassFiles = @( Get-ChildItem -Path $srcPath\classes\*.ps1 -Recurse -ErrorAction SilentlyContinue )
+$Classes = [Text.StringBuilder]::new()
+foreach ($ClassFile in $ClassFiles) {
+    $currClass = $ClassFile | Get-Content
+    foreach ($line in $currClass) {
+        [void]$Classes.AppendLine($line)
+    }
+}
+if ($Classes.Length -gt 0) {
+    Add-Content -Path $moduleFile -Value '# Loading Classes'
+    Add-Content -Path $moduleFile -Value ''
+    Add-Content -Path $moduleFile -Value $Classes.ToString()
+    Add-Content -Path $moduleFile -Value ''
+}
 
 #Get public and private function definition files.
-$Public = @( Get-ChildItem -Path $releasePath\Public\*.ps1 -ErrorAction SilentlyContinue )
-$Private = @( Get-ChildItem -Path $releasePath\Private\*.ps1 -ErrorAction SilentlyContinue )
+$Public = @( Get-ChildItem -Path $releasePath\Public\*.ps1 -Recurse -ErrorAction SilentlyContinue )
+$Private = @( Get-ChildItem -Path $releasePath\Private\*.ps1 -Recurse -ErrorAction SilentlyContinue )
 
 $replacePattern = $releasePath -replace '\\', '\\'
+
+Add-Content -Path $moduleFile -Value '# Importing Module Members'
+Add-Content -Path $moduleFile -Value ''
 foreach ($import in @($Private + $Public)) {
     # add the dot source for all discovered PS1 files to our psm1
     $PS1Path = $import.FullName -replace $replacePattern, ''
     Add-Content -Path $moduleFile -Value ". `"`$PSScriptRoot${PS1Path}`""
 }
 if (![string]::IsNullOrWhiteSpace(($AdditionalModuleChecks = Get-Content -Path "${PSScriptRoot}\modulechecks.ps1" -ErrorAction SilentlyContinue))) {
-    Add-Content -Path $moduleFile -Value ""
+    Add-Content -Path $moduleFile -Value ''
     Add-Content -Path $moduleFile -Value $AdditionalModuleChecks
 }
 
@@ -221,4 +247,4 @@ New-ModuleManifest @NewModuleManifestParams
 AnalyzePSFile -Path $moduleManifestFile -PSScriptAnalyzerSettings $PSScriptAnalyzerSettings
 
 $Files = Get-ChildItem -Path $releasePath | Select-Object -ExpandProperty FullName
-Compress-Archive -Path $Files -DestinationPath ([IO.Path]::Combine($zipPath, "Module.zip")) -CompressionLevel Optimal -Force
+Compress-Archive -Path $Files -DestinationPath ([IO.Path]::Combine($zipPath, "$ModuleName.zip")) -CompressionLevel Optimal -Force

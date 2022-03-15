@@ -83,6 +83,7 @@ function Remove-CsE911Configuration {
 }
 
 try {
+    $mainsw = [Diagnostics.Stopwatch]::StartNew()
     # push current location onto stack so we can change context back at finish
     Push-Location
     Set-Location -Path $PSScriptRoot
@@ -101,6 +102,7 @@ try {
             Write-Warning "No tests found matching the name '$OverrideTest'!"
         }
     }
+    $sw = [Diagnostics.Stopwatch]::new()
     foreach ($Test in $Tests) {
         Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
         Write-Information ""
@@ -108,8 +110,13 @@ try {
         Write-Information ""
         Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
         Write-Information ""
+        $sw.Restart()
         try {
             & $Test.FullName -Verbose:$Verbose
+            Write-Information ""
+            Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
+            Write-Information ""
+            Write-Information "$($Test.Name) Done! [TotalSeconds: $($sw.Elapsed.TotalSeconds.ToString('F3'))]"
             Write-Information ""
             Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
             Write-Information ""
@@ -120,7 +127,10 @@ try {
             Write-Information ""
             Write-Warning "Loop Catch for $Test"
             Write-Warning $_
-            # Write-Error $_
+            Write-Information ""
+            Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
+            Write-Information ""
+            Write-Information "$($Test.Name) Done! [TotalSeconds: $($sw.Elapsed.TotalSeconds.ToString('F3'))]"
             Write-Information ""
             Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
             Write-Information ""
@@ -133,11 +143,11 @@ catch {
     Write-Information ""
     Write-Warning "Main Catch"
     Write-Error $_
-    # Write-Warning $_.Exception.Message
     Write-Information ""
     Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
 }
 finally {
+    $sw.Stop()
     if ($changedFlighting) {
         Write-Information ""
         Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
@@ -166,10 +176,10 @@ finally {
     Write-Information ""
     Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
     Write-Information ""
-    Write-Information "Done!"
+    Write-Information "All tests Done! [TotalSeconds: $($mainsw.Elapsed.TotalSeconds.ToString('F3'))]"
     Write-Information ""
     Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
 
-
+    $mainsw.Stop()
     Pop-Location
 }

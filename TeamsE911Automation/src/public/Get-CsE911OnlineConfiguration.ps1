@@ -6,6 +6,9 @@ function Get-CsE911OnlineConfiguration {
     )
 
     begin {
+        $vsw = [Diagnostics.Stopwatch]::StartNew()
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
+
         try {
             [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
         }
@@ -25,14 +28,14 @@ function Get-CsE911OnlineConfiguration {
             $OrphanedNetworkObjectsWithLocation = [Collections.Generic.List[object]]::new()
         }
 
-        Write-Verbose "Populating Caches..."
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Populating Caches..."
         try {
             $addressCache = Get-CsLisCivicAddressCache -ErrorAction Stop
-            Write-Verbose "Cached $($addressCache.Keys.Count) Civic Addresses"
+            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Cached $($addressCache.Keys.Count) Civic Addresses"
             $locationCache = Get-CsLisLocationCache -PopulateUsageData -ErrorAction Stop
-            Write-Verbose "Cached $($locationCache.Keys.Count) Locations"
+            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Cached $($locationCache.Keys.Count) Locations"
             $networkObjectCache = Get-CsLisNetworkObjectCache -ErrorAction Stop
-            Write-Verbose "Cached $($networkObjectCache.Keys.Count) Network Objects"
+            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Cached $($networkObjectCache.Keys.Count) Network Objects"
         }
         catch {
             throw $_
@@ -327,5 +330,7 @@ function Get-CsE911OnlineConfiguration {
     }
 
     end {
+        $vsw.Stop()
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
     }
 }
