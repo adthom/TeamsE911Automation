@@ -20,15 +20,15 @@ function Set-CsE911SourceChange {
         $FoundBlockingOnlineChanges = [Collections.Generic.List[string]]::new()
         $OnlineChangesThatCouldBlock = [Collections.Generic.List[string]]::new()
 
-        # # Prepare RawInput for evaulation
-        # # We only need to look to update input rows where changes have occurred
-        # $UnchangedRows = $RawInput.Where({ !(Confirm-RowHasChanged -Row $_) })
-        # # write rows to outputstream early
-        # Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Rows unchanged: $($UnchangedRows.Count)"
-        # $UnchangedRows | Write-Output
+        # Prepare RawInput for evaulation
+        # We only need to look to update input rows where changes have occurred
+        $UnchangedRows = $RawInput.Where({ !(Confirm-RowHasChanged -Row $_) })
+        # write rows to outputstream early
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Rows unchanged: $($UnchangedRows.Count)"
+        $UnchangedRows | Write-Output
 
-        # $UnprocessedRows = $RawInput.Where({ $_ -notin $UnchangedRows })
-        $UnprocessedRows = $RawInput
+        $UnprocessedRows = $RawInput.Where({ $_ -notin $UnchangedRows })
+        # $UnprocessedRows = $RawInput
         $UnprocessedRowHash = @{}
         foreach ($Row in $UnprocessedRows) {
             $RowHash = Get-CsE911RowHash -Row $Row
@@ -94,4 +94,3 @@ function Set-CsE911SourceChange {
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
     }
 }
-

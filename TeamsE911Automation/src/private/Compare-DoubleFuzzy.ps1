@@ -16,7 +16,7 @@ function Compare-DoubleFuzzy {
 
     $Delta = [Math]::Abs($ReferenceNum - $DifferenceNum)
     $FmtString = [string]::new("0", $DecimalPlaces)
-    $IsFuzzyMatch = $Delta.ToString() -match "^0\.0{$DecimalPlaces,}" -or $Delta.ToString() -match "^(0\.)?0+$"
+    $IsFuzzyMatch = [Math]::Round($Delta, $DecimalPlaces) -eq 0
     if (!$IsFuzzyMatch -and $ReferenceNum -ne 0.0) {
         Write-Verbose ("ReferenceNum: {0:0.$FmtString}`tDifferenceNum: {1:0.$FmtString}`tDiff: {2:0.$FmtString}" -f $ReferenceNum, $DifferenceNum, $Delta)
     }
