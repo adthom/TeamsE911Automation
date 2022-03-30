@@ -1,8 +1,8 @@
 using module "..\TeamsE911Automation\src\TeamsE911Automation.psd1"
 
 param (
-    [bool]
-    $Verbose = $false
+    [switch]
+    $Verbose
 )
 
 Write-Information "Testing simplified end-to-end workflow via CSV..."
@@ -13,14 +13,14 @@ Remove-CsE911Configuration -Verbose:$Verbose
 
 Write-Information ""
 Write-Information "Beginning Tests..."
+Reset-CsE911Cache -Verbose:$Verbose
 
 Write-Information ""
 Write-Information "Running Pipeline..."
 $CsvPath1 = "$PSScriptRoot\test_data.csv"
 $RawInput1 = Import-Csv -Path $CsvPath1 -Verbose:$Verbose
 $RawOutput1 = $RawInput1 | Get-CsE911NeededChange -Verbose:$Verbose | 
-                    Set-CsE911OnlineChange -Verbose:$Verbose | 
-                    Set-CsE911SourceChange -RawInput $RawInput1 -Verbose:$Verbose
+                    Set-CsE911OnlineChange -Verbose:$Verbose
 # write $RawOutput1 back to source data
 # $RawOutput1 | Export-Csv -Path $CsvPath1 -NoTypeInformation
 

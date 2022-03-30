@@ -9,7 +9,7 @@ Description
   string
 
 Location
-  required
+  if left empty, will use the default location for the address
   string
 
 Address

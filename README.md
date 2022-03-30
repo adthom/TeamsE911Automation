@@ -4,11 +4,12 @@
 
 See the the required data format [here](./scripts/StringlyTypedDataStructure.txt)
 
-This module contains 4 cmdlets:
+This module contains 3 cmdlets:
 1. Get-CsE911NeededChange => This cmdlet processes all the LIS information provided in the source CSV, along with all LIS information already confiigured in Teams, determines what changes/updates are required and creates all the PowerShell one-liners to execute the changes/updates to the online and source environments
-2. Set-CsE911OnlineChange => This cmdlet executes all the changes/updates online (in Teams service)
-3. Set-CsE911SourceChange => This cmdlet executes all the changes/updates to the source (CSV) - this writes any Warnings or EntryHashes back to the source data that can then be exported to overwrite the source CSV with the latest updates. In the future, if the same CSV is processed, any rows with an EntryHash that matches the current row with no be re-processed.
-4. Get-CsE911OnlineConfiguration => This cmdlet allows exporting all information from Teams in the source data format required for the TeamsE911Automation module to process and can be used as a potential backup source file
+2. Set-CsE911OnlineChange => This cmdlet executes all the changes/updates online (in Teams service) and writes any Warnings or EntryHashes back to the source data that can then be exported to overwrite the source CSV with the latest updates
+    - In the future, if the same CSV is processed, any rows with an EntryHash that matches the current row with no be re-processed.
+    - This also has added the ability to to a ValidationOnly pass, and generate an Execution plan, which is a text output of all the commands that would have been run had this been an actual workflow pass.
+3. Get-CsE911OnlineConfiguration => This cmdlet allows exporting all information from Teams in the source data format required for the TeamsE911Automation module to process and can be used as a potential backup source file
 
 
 ## Below is a sample workflow leveraging CSV files
@@ -43,8 +44,7 @@ You can choose to execute each step of the process (Get-CsE911NeededChange => Se
 #### Process the imported csv data to analyze the current teams tenant configuration and prepare changes to online and source data
 ```powershell
 $RawOutput1 = $RawInput1 | Get-CsE911NeededChange | # determine any needed changes
-    Set-CsE911OnlineChange |                        # process online changes
-    Set-CsE911SourceChange -RawInput $RawInput1     # process source changes (adding any warning data if a provided input failed to process for any reason)
+    Set-CsE911OnlineChange |                        # process online changes (adding any warning data if a provided input failed to process for any reason)
 ```
 
 #### Write $RawOutput1 back to source data

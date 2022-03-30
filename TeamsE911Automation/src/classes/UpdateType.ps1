@@ -1,0 +1,4 @@
+enum UpdateType {
+    Source
+    Online
+}

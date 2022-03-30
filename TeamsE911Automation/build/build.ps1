@@ -102,7 +102,8 @@ $Version = '{0}.{1}.{2}.{3}' -f @(
     $BuildNumber,
     $Revision
 )
-Update-ModuleManifest -Path $srcModuleManifest -ModuleVersion $Version
+$ModuleManifest['ModuleVersion'] = $Version
+Update-ModuleManifest -Path $srcModuleManifest @ModuleManifest
 AnalyzePSFile -Path $srcModuleManifest -PSScriptAnalyzerSettings $PSScriptAnalyzerSettings
 
 #Get public and private function definition files.
@@ -116,6 +117,10 @@ $NewModuleManifestParams = @{
     ModuleVersion     = $Version
     CompanyName       = $Company
     Author            = $Author
+}
+
+if ($ModuleManifest['ScriptsToProcess'].Where({$_.EndsWith('builder.ps1')}).Count -gt 0) {
+    $NewModuleManifestParams['ScriptsToProcess'] = $ModuleManifest['ScriptsToProcess'].Where({!$_.EndsWith('builder.ps1')})
 }
 
 if ( [string]::IsNullOrEmpty($Company) -and $ModuleManifest['CompanyName'].ToLower() -ne 'unknown' ) {
@@ -144,9 +149,10 @@ foreach ( $p in $Parameters ) {
                     [void] $NewModuleManifestParams.Add('PrivateData', $PSData)
                 }
             }
+            continue
         }
-        elseif ( $p -notin $NewModuleManifestParams.Keys -and $p -notin @('Copyright') ) {
-            if ( $p -ne 'FunctionsToExport' -and $p.EndsWith('ToExport') -and $ModuleManifest[$p] -eq '*' ) {
+        if ( $p -notin $NewModuleManifestParams.Keys -and $p -notin @('Copyright') ) {
+            if ( $ModuleManifest[$p] -eq '*' ) {
                 [void] $NewModuleManifestParams.Add($p, @())
             }
             else {
@@ -206,6 +212,13 @@ Add-Content -Path $moduleFile -Value "# Version: $Version"
 Add-Content -Path $moduleFile -Value "# $($NewModuleManifestParams['Copyright'])"
 Add-Content -Path $moduleFile -Value ''
 
+# Import Disclaimer
+$Disclaimer = Get-ChildItem -Path $PSScriptRoot\disclaimer.txt -ErrorAction SilentlyContinue
+if ($Disclaimer) {
+    $DisclaimerText = $Disclaimer | Get-Content | ForEach-Object { "# $_" }
+    Add-Content -Path $moduleFile -Value $DisclaimerText
+    Add-Content -Path $moduleFile -Value ''
+}
 
 $ClassFiles = @( Get-ChildItem -Path $srcPath\classes\*.ps1 -Recurse -ErrorAction SilentlyContinue )
 $Classes = [Text.StringBuilder]::new()
@@ -226,15 +239,24 @@ if ($Classes.Length -gt 0) {
 $Public = @( Get-ChildItem -Path $releasePath\Public\*.ps1 -Recurse -ErrorAction SilentlyContinue )
 $Private = @( Get-ChildItem -Path $releasePath\Private\*.ps1 -Recurse -ErrorAction SilentlyContinue )
 
-$replacePattern = $releasePath -replace '\\', '\\'
-
-Add-Content -Path $moduleFile -Value '# Importing Module Members'
+Add-Content -Path $moduleFile -Value '# Loading Functions'
 Add-Content -Path $moduleFile -Value ''
 foreach ($import in @($Private + $Public)) {
     # add the dot source for all discovered PS1 files to our psm1
-    $PS1Path = $import.FullName -replace $replacePattern, ''
-    Add-Content -Path $moduleFile -Value ". `"`$PSScriptRoot${PS1Path}`""
+    try {
+        Write-Verbose "Importing $($import.FullName)"
+        Add-Content -Path $moduleFile -Value ''
+        Add-Content -Path $moduleFile -Value "# $($import.BaseName)"
+        $Raw = Get-Content -Path $import.FullName -Raw
+        $Raw = ($Raw.Trim() -replace '(\r?\n){3,}',([Environment]::NewLine + [Environment]::NewLine)) + [Environment]::NewLine
+        $Raw | Add-Content -Path $moduleFile | Out-Null
+    }
+    catch {
+        Write-Error -Message "Failed to import function $($import.FullName): $_"
+    }
 }
+
+
 if (![string]::IsNullOrWhiteSpace(($AdditionalModuleChecks = Get-Content -Path "${PSScriptRoot}\modulechecks.ps1" -ErrorAction SilentlyContinue))) {
     Add-Content -Path $moduleFile -Value ''
     Add-Content -Path $moduleFile -Value $AdditionalModuleChecks
@@ -245,6 +267,10 @@ AnalyzePSFile -Path $moduleFile -PSScriptAnalyzerSettings $PSScriptAnalyzerSetti
 # Create new module manifest with our inputs
 New-ModuleManifest @NewModuleManifestParams
 AnalyzePSFile -Path $moduleManifestFile -PSScriptAnalyzerSettings $PSScriptAnalyzerSettings
+
+# remove folders
+Remove-Item -Path $releasePath\Public -Recurse -ErrorAction SilentlyContinue
+Remove-Item -Path $releasePath\Private -Recurse -ErrorAction SilentlyContinue
 
 $Files = Get-ChildItem -Path $releasePath | Select-Object -ExpandProperty FullName
 Compress-Archive -Path $Files -DestinationPath ([IO.Path]::Combine($zipPath, "$ModuleName.zip")) -CompressionLevel Optimal -Force

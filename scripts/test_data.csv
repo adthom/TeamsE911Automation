@@ -17,3 +17,6 @@ Cincinnati,,Cincinnati,GS108T Port 1,4445 Lake Forest Drive,Blue Ash,OH,45242,US
 Cincinnati,,Cincinnati,GS108T Port 2,4445 Lake Forest Drive,Blue Ash,OH,45242,US,,,,Port 2,Port,10-da-43-02-f9-ef;g2,,,
 Cincinnati,,Cincinnati,GS108T Port 7-test,4445 Lake Forest Drive,Blue Ash,OH,45242,US,,,,,Port,10-da-43-02-f9-ef;g7,,,
 Cincinnati,,Cincinnati,US-8-60W,4445 Lake Forest Drive,Blue Ash,OH,45242,US,,,,,Subnet,10.0.99.0,,,
+Cincinnati,,Cincinnati,US-8-60W,4445 Lake Forest Drive,Blue Ash,OH,45242,US,,,,,Subnet,10.0.2.0,,,
+Cincinnati,,Cincinnati,,4445 Lake Forest Drive,Blue Ash,OH,45242,US,,,,,Subnet,10.0.2.0,,,
+Cincinnati,,Cincinnati,,4445 Lake Forest Drive,Blue Ash,OH,45242,US,,,,,Subnet,10.0.3.0,,,

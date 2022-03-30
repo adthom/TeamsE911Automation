@@ -1,6 +1,6 @@
 param (
-    [bool]
-    $Verbose = $false,
+    [switch]
+    $Verbose,
 
     [ValidateSet("Default", "REST", "Legacy", IgnoreCase = $true)]
     [string]
@@ -17,17 +17,98 @@ catch {
     throw "Run Connect-MicrosoftTeams prior to executing this script!"
 }
 
+function Remove-CsE911Configuration {
+    [CmdletBinding()]
+    param ()
+    $Subnets = @(Get-CsOnlineLisSubnet).Where({ $_.Subnet })
+    $i = 0
+    foreach ($Subnet in $Subnets) {
+        Write-Verbose "Removing Subnet:$($Subnet.Subnet)"
+        Remove-CsOnlineLisSubnet -Subnet $Subnet.Subnet | Out-Null
+        $i++
+    }
+    Write-Information "Removed $i subnets"
+
+    $Switches = @(Get-CsOnlineLisSwitch).Where({ $_.ChassisId })
+    $i = 0
+    foreach ($Switch in $Switches) {
+        Write-Verbose "Removing Switch:$($Switch.ChassisId)"
+        Remove-CsOnlineLisSwitch -ChassisId $Switch.ChassisId | Out-Null
+        $i++
+    }
+    Write-Information "Removed $i switches"
+
+    $Ports = @(Get-CsOnlineLisPort).Where({ $_.ChassisId -and $_.PortId })
+    $i = 0
+    foreach ($Port in $Ports) {
+        Write-Verbose "Removing Port:$($Port.ChassisId):$($Port.PortId)"
+        Remove-CsOnlineLisPort -PortId $Port.PortId -ChassisId $Port.ChassisId | Out-Null
+        $i++
+    }
+    Write-Information "Removed $i ports"
+
+    $WirelessAccessPoints = @(Get-CsOnlineLisWirelessAccessPoint).Where({ $_.Bssid })
+    $i = 0
+    foreach ($WAP in $WirelessAccessPoints) { 
+        Write-Verbose "Removing WAP:$($WAP.Bssid)"
+        Remove-CsOnlineLisWirelessAccessPoint -Bssid $WAP.Bssid | Out-Null
+        $i++
+    }
+    Write-Information "Removed $i wireless access points"
+
+    $Addresses = @(Get-CsOnlineLisCivicAddress -PopulateNumberOfVoiceUsers -PopulateNumberOfTelephoneNumbers)
+    $Locations = @(Get-CsOnlineLisLocation)
+    $i = 0
+    $j = 0
+    foreach ($Location in $Locations) {
+        $addr = $Addresses.Where({ $_.CivicAddressId -eq $Location.CivicAddressId -and $Location.LocationId -ne $_.DefaultLocationId })
+        if ($null -eq $addr -or $addr.Count -eq 0) { continue }
+        Remove-CsOnlineLisLocation -LocationId $Location.LocationId | Out-Null
+        $i++
+    }
+    foreach ($Address in $Addresses) {
+        if ($Address.NumberOfVoiceUsers -gt 0 -or $Address.NumberOfTelephoneNumbers -gt 0 ) { continue }
+        Remove-CsOnlineLisCivicAddress -CivicAddressId $Address.CivicAddressId | Out-Null
+        $j++
+    }
+    Write-Information "Removed $i locations"
+    Write-Information "Removed $j addresses"
+}
+
+function Write-Separator {
+    Write-Information ""
+    Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
+    Write-Information ""
+}
+
+function Write-TestStart {
+    param (
+        $Name
+    )
+    Write-Separator
+    Write-Information "Running Test $Name..."
+    Write-Separator
+}
+
+function Write-TestEnd {
+    param (
+        $Name,
+        [Diagnostics.Stopwatch]
+        $sw
+    )
+    Write-Separator
+    Write-Information "$Name Done! [TotalSeconds: $($sw.Elapsed.TotalSeconds.ToString('F3'))]"
+    Write-Separator
+}
+
 $ConfigApiCmdlets = [Microsoft.Teams.ConfigApi.Cmdlets.SessionStateStore]::TryConfigApiSessionInfo.SessionConfiguration.RemotingCmdletsFlightedForAutoRest
 $ExistingConfiguration = [Collections.Generic.List[string]]::new()
 $ExistingConfiguration.AddRange($ConfigApiCmdlets) | Out-Null
 $CmdletsToCheck = Get-Command -Verb @('Get', 'Set', 'Remove') -Noun CsOnlineLis* | Select-Object -ExpandProperty Name
 $changedFlighting = $false
-Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
-Write-Information ""
+Write-Separator
 Write-Information "Here is the current cmdlet endpoint configuration:"
-Write-Information ""
-Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
-Write-Information ""
+Write-Separator
 foreach ($cmdlet in $CmdletsToCheck) {
     if ($cmdlet -in $ConfigApiCmdlets) {
         Write-Information "REST:   $cmdlet"
@@ -45,14 +126,10 @@ foreach ($cmdlet in $CmdletsToCheck) {
     }
 }
 if ($changedFlighting) {
-    Write-Information ""
-    Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
-    Write-Information ""
+    Write-Separator
     Write-Information "Flighting configuration has changed!"
     Write-Information "Here is the new endpoint configuration:"
-    Write-Information ""
-    Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
-    Write-Information ""
+    Write-Separator
     foreach ($cmdlet in $CmdletsToCheck) {
         if ($cmdlet -in $ConfigApiCmdlets) {
             Write-Information "REST:   $cmdlet"
@@ -63,36 +140,17 @@ if ($changedFlighting) {
     }
 }
 
-Write-Information ""
-
-function Remove-CsE911Configuration {
-    [CmdletBinding()]
-    param ()
-    (Get-CsOnlineLisSubnet) | Where-Object { $_.Subnet } | ForEach-Object { Remove-CsOnlineLisSubnet -Subnet $_.Subnet | Out-Null }
-    (Get-CsOnlineLisSwitch) | Where-Object { $_.ChassisID } | ForEach-Object { Remove-CsOnlineLisSwitch -ChassisID $_.ChassisID | Out-Null }
-    (Get-CsOnlineLisPort) | Where-Object { $_.ChassisID -and $_.PortID } | ForEach-Object { Remove-CsOnlineLisPort -PortId $_.PortID -ChassisID $_.ChassisID | Out-Null }
-    (Get-CsOnlineLisWirelessAccessPoint) | Where-Object { $_.BSSID } | ForEach-Object { Remove-CsOnlineLisWirelessAccessPoint -BSSID $_.BSSID | Out-Null }
-    $Addresses = Get-CsOnlineLisCivicAddress -PopulateNumberOfVoiceUsers -PopulateNumberOfTelephoneNumbers
-    (Get-CsOnlineLisLocation) | Where-Object { $_.LocationId -notin $Addresses.DefaultLocationId -and 
-        $null -ne (Get-CsOnlineLisCivicAddress -CivicAddressId $_.CivicAddressId -ErrorAction SilentlyContinue)} | ForEach-Object {
-        Remove-CsOnlineLisLocation -LocationId $_.LocationId | Out-Null
-    }
-    $Addresses | Where-Object { $_.NumberOfVoiceUsers -le 0 -and $_.NumberOfTelephoneNumbers -le 0 } | ForEach-Object {
-        Remove-CsOnlineLisCivicAddress -CivicAddressId $_.CivicAddressId | Out-Null
-    }
-}
-
 try {
     $mainsw = [Diagnostics.Stopwatch]::StartNew()
     # push current location onto stack so we can change context back at finish
     Push-Location
     Set-Location -Path $PSScriptRoot
 
-    # remove loaded module to allow using/import statement to function
-    Remove-Module -Name TeamsE911Automation -ErrorAction SilentlyContinue
-
     # import secrets
     . .\test_secrets.ps1
+
+    # remove loaded module to allow using/import statement to function
+    Remove-Module -Name TeamsE911Automation -ErrorAction SilentlyContinue -Verbose:$false
 
     # run test script(s)
     $Tests = Get-ChildItem -Path . -Recurse -File -Filter '*.ps1' | Where-Object { $_.BaseName -match '^test(\d+)?$' }
@@ -104,54 +162,29 @@ try {
     }
     $sw = [Diagnostics.Stopwatch]::new()
     foreach ($Test in $Tests) {
-        Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
-        Write-Information ""
-        Write-Information "Running Test $($Test.Name)..."
-        Write-Information ""
-        Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
-        Write-Information ""
+        Write-TestStart $Test.Name
         $sw.Restart()
         try {
             & $Test.FullName -Verbose:$Verbose
-            Write-Information ""
-            Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
-            Write-Information ""
-            Write-Information "$($Test.Name) Done! [TotalSeconds: $($sw.Elapsed.TotalSeconds.ToString('F3'))]"
-            Write-Information ""
-            Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
-            Write-Information ""
         }
         catch {
-            Write-Information ""
-            Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
-            Write-Information ""
+            Write-Separator
             Write-Warning "Loop Catch for $Test"
             Write-Warning $_
-            Write-Information ""
-            Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
-            Write-Information ""
-            Write-Information "$($Test.Name) Done! [TotalSeconds: $($sw.Elapsed.TotalSeconds.ToString('F3'))]"
-            Write-Information ""
-            Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
-            Write-Information ""
         }
+        Write-TestEnd $Test.Name $sw
     }
 }
 catch {
-    Write-Information ""
-    Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
-    Write-Information ""
+    Write-Separator
     Write-Warning "Main Catch"
     Write-Error $_
-    Write-Information ""
-    Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
+    Write-Separator
 }
 finally {
     $sw.Stop()
     if ($changedFlighting) {
-        Write-Information ""
-        Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
-        Write-Information ""
+        Write-Separator
         Write-Information "Flighting configuration has changed, resetting back to original..."
         $ConfigApiCmdlets = [Microsoft.Teams.ConfigApi.Cmdlets.SessionStateStore]::TryConfigApiSessionInfo.SessionConfiguration.RemotingCmdletsFlightedForAutoRest
         foreach ($prev in $ExistingConfiguration) {
@@ -170,16 +203,9 @@ finally {
                 $ConfigApiCmdlets.Remove($curr) | Out-Null
             }
         }
-        Write-Information ""
-        Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
+        Write-Separator
     }
-    Write-Information ""
-    Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
-    Write-Information ""
-    Write-Information "All tests Done! [TotalSeconds: $($mainsw.Elapsed.TotalSeconds.ToString('F3'))]"
-    Write-Information ""
-    Write-Information "$([string]::new('*', ($host.UI.RawUI.BufferSize.Width - 5)))"
-
+    Write-TestEnd 'All tests' $mainsw
     $mainsw.Stop()
     Pop-Location
 }

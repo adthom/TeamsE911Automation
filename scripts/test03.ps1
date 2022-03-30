@@ -1,8 +1,8 @@
 using module "..\TeamsE911Automation\src\TeamsE911Automation.psd1"
 
 param (
-    [bool]
-    $Verbose = $false
+    [switch]
+    $Verbose
 )
 
 Write-Information "Testing simplified end-to-end workflow via CSV with Export..."
@@ -13,17 +13,19 @@ Remove-CsE911Configuration -Verbose:$Verbose
 
 Write-Information ""
 Write-Information "Beginning Tests..."
+Reset-CsE911Cache -Verbose:$Verbose
+
 Write-Information ""
 Write-Information "Configuring locations..."
 $CsvPath1 = "$PSScriptRoot\test_data.csv"
 $RawInput1 = Import-Csv -Path $CsvPath1 -Verbose:$Verbose
 $RawOutput1 = $RawInput1 | Get-CsE911NeededChange -Verbose:$Verbose | 
-                    Set-CsE911OnlineChange -Verbose:$Verbose | 
-                    Set-CsE911SourceChange -RawInput $RawInput1 -Verbose:$Verbose
+                    Set-CsE911OnlineChange -Verbose:$Verbose
 Write-Information ""
 Write-Information "$($RawInput1.Count) inputs provided to pipeline"
 Write-Information "$($RawOutput1.Count) outputs generated from pipeline"
 
+Reset-CsE911Cache -Verbose:$Verbose
 Write-Information "Exporting Configuration..."
 $RawOutput2 = Get-CsE911OnlineConfiguration -Verbose:$Verbose
 Write-Information ""
@@ -33,11 +35,11 @@ Write-Information ""
 Write-Information "Removing created configuration..."
 Remove-CsE911Configuration -Verbose:$Verbose
 
+Reset-CsE911Cache -Verbose:$Verbose
 Write-Information ""
 Write-Information "Re-importing Configuration..."
 $RawOutput3 = $RawOutput2 | Get-CsE911NeededChange -Verbose:$Verbose | 
-                    Set-CsE911OnlineChange -Verbose:$Verbose | 
-                    Set-CsE911SourceChange -RawInput $RawOutput2 -Verbose:$Verbose
+                    Set-CsE911OnlineChange -Verbose:$Verbose
 Write-Information ""
 Write-Information "$($RawOutput2.Count) inputs provided to pipeline"
 Write-Information "$($RawOutput3.Count) outputs generated from pipeline"
