@@ -5,4 +5,3 @@ function Reset-CsE911Cache {
         [E911ModuleState]::FlushCaches($null)
     }
 }
-

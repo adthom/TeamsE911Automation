@@ -9,6 +9,7 @@ class E911Address {
     hidden [string] $DefaultLocationId
     hidden [bool] $_isOnline
     hidden [bool] $_hasChanged
+    hidden [bool] $_commandGenerated
 
     hidden [void] Init([PSCustomObject] $obj, [bool]$ShouldValidate) {
         if (![string]::IsNullOrEmpty($obj.CivicAddressId)) {
@@ -20,6 +21,7 @@ class E911Address {
         $this.Warning = [WarningList]::new()
         $WarnType = [WarningType]::InvalidInput
 
+        $this._commandGenerated = $false
         $addr = [E911Address]::_convertOnlineAddress($obj)
         $this._isOnline = $true
         $this._hasChanged = $false
@@ -174,12 +176,11 @@ class E911Address {
         return $this.Warning.ValidationFailureCount()
     }
 
-    [string] GetDefaultLocationCommand() {
-        return '{0} = Get-CsOnlineLisCivicAddress -ErrorAction Stop -CivicAddressId "{1}"' -f $this.Id.VariableName(), $this.Id.ToString()
-    }
-
     [string] GetCommand() {
-        if ([string]::IsNullOrEmpty($this._command) -and $this._hasChanged) {
+        if ($this._commandGenerated -or ($this._isOnline -and !$this._hasChanged)) {
+            return ''
+        }
+        if ([string]::IsNullOrEmpty($this._command)) {
             $sb = [Text.StringBuilder]::new()
             $AddressParams = @{
                 StreetName      = $this.StreetName()
@@ -209,10 +210,11 @@ class E911Address {
             if (![string]::IsNullOrEmpty($this.Elin)) {
                 $AddressParams['Elin'] = $this.Elin
             }
-            [void]$sb.AppendFormat("{0} = New-CsOnlineLisCivicAddress -ErrorAction Stop", $this.Id.VariableName())
+            [void]$sb.AppendFormat("{0} = New-CsOnlineLisCivicAddress", $this.Id.VariableName())
             foreach ($Parameter in $AddressParams.Keys) {
                 [void]$sb.AppendFormat(' -{0} "{1}"', $Parameter, $AddressParams[$Parameter])
             }
+            $sb.Append(' -ErrorAction Stop | Select-Object -Property CivicAddressId, DefaultLocationId')
             $this._command = $sb.ToString()
         }
         return $this._command

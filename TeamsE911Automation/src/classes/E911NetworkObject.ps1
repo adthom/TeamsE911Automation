@@ -3,6 +3,7 @@ class E911NetworkObject {
     hidden [bool] $_isOnline
     hidden [bool] $_hasChanged
     hidden [bool] $_isDuplicate
+    hidden [bool] $_commandGenerated
     hidden [string] $_hash
     hidden [string] $_command
     hidden [string] $_locationId
@@ -13,11 +14,11 @@ class E911NetworkObject {
         if ([string]::IsNullOrEmpty($newType)) { $newType = 'Unknown' }
         $this.Init([NetworkObjectType]$newType, [NetworkObjectIdentifier]::new($newIdentifier), $Description)
     }
+
     hidden Init([NetworkObjectType]$type, [NetworkObjectIdentifier]$identifier, [string] $Description) {
         $this.Type = $type
         $this.Identifier = $identifier
         $this.Description = $Description
-        # need to add some default description generation?
         if ($null -eq $this.Warning) {
             $this.Warning = [WarningList]::new()
         }
@@ -26,8 +27,10 @@ class E911NetworkObject {
         }
         $this.Id = [ItemId]::new()
         $this._isDuplicate = $false
-        $this._hasChanged = $false
+        $this._hasChanged = $this._hasChanged -or $false
+        $this._commandGenerated = $false
     }
+
     hidden Init([PSCustomObject]$obj, [bool] $ShouldValidate) {
         $NetworkObjectType = $obj.NetworkObjectType
         $NetworkObjectIdentifier = $obj.NetworkObjectIdentifier
@@ -54,15 +57,11 @@ class E911NetworkObject {
                 }
             }
         }
-        if ([string]::IsNullOrEmpty($obj.Location)) {
-            $this._location = [E911ModuleState]::GetDefaultLocation($obj, $ShouldValidate)
-        }
-        else {
-            $this._location = [E911ModuleState]::GetOrCreateLocation($obj, $ShouldValidate)
-        }
+        $this._location = [E911ModuleState]::GetOrCreateLocation($obj, $ShouldValidate)
         $Desc = if ($null -eq $obj.LocationId) { $obj.NetworkDescription } else { $obj.Description }
         $this.Init($NetworkObjectType, $NetworkObjectIdentifier, $Desc)
     }
+
     hidden Init([PSCustomObject]$obj) {
         if (![string]::IsNullOrEmpty($obj.LocationId)) {
             $this._locationId = $obj.LocationId
@@ -90,25 +89,12 @@ class E911NetworkObject {
             $this.Init($obj, $true)
             return
         }
-        if ([string]::IsNullOrEmpty($obj.Location)) {
-            $this._location = [E911ModuleState]::GetDefaultLocation($obj, $false)
-        }
-        else {
-            $this._location = [E911ModuleState]::GetOrCreateLocation($obj, $false)
+        $this._location = [E911ModuleState]::GetOrCreateLocation($obj, $false)
+        if (![string]::IsNullOrEmpty($this._locationId) -and $this._location.Id.ToString() -ne $this._locationId) {
+            # re-home this object to the other matching location id
+            $this._hasChanged = $true
         }
         $this.Init($newType, $newIdentifier, $obj.Description)
-    }
-
-    E911NetworkObject([NetworkObjectType]$newType, [NetworkObjectIdentifier]$newIdentifier, [string] $Description) {
-        $this.Init($newType, $newIdentifier, $Description)
-    }
-
-    E911NetworkObject([string]$newType, [string]$newIdentifier, [string] $Description) {
-        $this.Init($newType, $newIdentifier, $Description)
-    }
-
-    E911NetworkObject() {
-        $this.Init([NetworkObjectType]::Unknown, [NetworkObjectIdentifier]::new([string]::Empty), [string]::Empty)
     }
 
     E911NetworkObject([PSCustomObject]$obj, [bool] $ShouldValidate) {
@@ -119,35 +105,25 @@ class E911NetworkObject {
         $this.Init($obj, $ShouldValidate)
     }
 
-    E911NetworkObject([PSCustomObject]$obj) {
-        if (![string]::IsNullOrEmpty($obj.LocationId)) {
-            $this.Init($obj)
-            return
-        }
-        $this.Init($obj, $true)
-    }
-
     [NetworkObjectType] $Type
     [NetworkObjectIdentifier] $Identifier
     [string] $Description
 
     [WarningList] $Warning
 
-    [string] GetCommand([bool] $UseVariable) {
-        if ($this.Type -eq [NetworkObjectType]::Unknown -or $null -eq $this._location) {
+    [string] GetCommand() {
+        if ($this._commandGenerated -or ($this._isOnline -and !$this._hasChanged) -or $this.Type -eq [NetworkObjectType]::Unknown -or $null -eq $this._location) {
             return ''
         }
-        if ([string]::IsNullOrEmpty($this._command) -and $this._hasChanged) {
+        if ([string]::IsNullOrEmpty($this._command)) {
             $sb = [Text.StringBuilder]::new()
-            if ($UseVariable) {
-                if ($this._location._isDefault) {
-                    $LocationId = '{0}.DefaultLocationId' -f $this._location._address.Id.VariableName()
-                }
-                else {
-                    $LocationId = '{0}.LocationId' -f $this._location.Id.VariableName()
-                } 
+            if ($this._location._isDefault -and $this._location._address._hasChanged) {
+                $LocationId = '{0}.DefaultLocationId' -f $this._location._address.Id.VariableName()
             }
-            else <# ($this._location._isOnline) #> {
+            elseif ($this._location._hasChanged) {
+                $LocationId = '{0}.LocationId' -f $this._location.Id.VariableName()
+            }
+            else {
                 $LocationId = '"{0}"' -f $this._location.Id.ToString()
             }
             [void]$sb.AppendFormat('Set-CsOnlineLis{0} -LocationId {1}', $this.Type, $LocationId)
@@ -155,7 +131,7 @@ class E911NetworkObject {
                 [void]$sb.AppendFormat(' -Description "{0}"', $this.Description)
             }
             if ($this.Type -eq [NetworkObjectType]::Switch -or $this.Type -eq [NetworkObjectType]::Port) {
-                [void]$sb.AppendFormat(' -ChassisID "{0}"', $this.Identifier.PhysicalAddress)
+                [void]$sb.AppendFormat(' -ChassisId "{0}"', $this.Identifier.PhysicalAddress)
             }
             if ($this.Type -eq [NetworkObjectType]::Port) {
                 [void]$sb.AppendFormat(' -PortId "{0}"', $this.Identifier.PortId)
@@ -164,7 +140,7 @@ class E911NetworkObject {
                 [void]$sb.AppendFormat(' -Subnet "{0}"', $this.Identifier.SubnetId.ToString())
             }
             if ($this.Type -eq [NetworkObjectType]::WirelessAccessPoint) {
-                [void]$sb.AppendFormat(' -BSSID "{0}"', $this.Identifier.PhysicalAddress)
+                [void]$sb.AppendFormat(' -Bssid "{0}"', $this.Identifier.PhysicalAddress)
             }
             [void]$sb.Append(' -ErrorAction Stop | Out-Null')
             $this._command = $sb.ToString()
@@ -200,7 +176,7 @@ class E911NetworkObject {
             $newIdentifier = $obj.ChassisId
             if ($null -ne $obj.PortId) {
                 $newType = 'Port'
-                $newIdentifier += ";$($obj.PortID)"
+                $newIdentifier += ";$($obj.PortId)"
             }
         }
         if ($null -ne $obj.Bssid) {

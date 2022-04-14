@@ -11,13 +11,13 @@ function Set-CsE911OnlineChange {
         [switch]
         $ValidateOnly,
 
-        [Parameter(Mandatory = $false, ParameterSetName = 'Validate')]
+        [Parameter(Mandatory = $false)]
         [string]
         $ExecutionPlanPath
     )
     begin {
         $vsw = [Diagnostics.Stopwatch]::StartNew()
-        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
+        Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
         try {
             [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
             # maybe check for token expiration here?
@@ -32,19 +32,28 @@ function Set-CsE911OnlineChange {
             }
             if ((Test-Path -Path $ExecutionPlanPath -PathType Container -ErrorAction SilentlyContinue)) {
                 # get new file name:
-                $FileName = 'E911ExecutionPlan_{0:yyyyMMdd_HHmmss}.txt' -f [DateTime]::Now
+                $ExecutionName = if ($ValidateOnly) { 'ExecutionPlan' } else { 'ExecutedCommands' }
+                $Date = '{0:yyyy-MM-dd HH:mm:ss}' -f [DateTime]::Now
+                $FileName = 'E911{0}_{1:yyyyMMdd_HHmmss}.txt' -f $ExecutionName, [DateTime]::Now
                 $ExecutionPlanPath = Join-Path -Path $ExecutionPlanPath -ChildPath $FileName
             }
             try {
                 Set-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# *******************************************************************************'
-                Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# Teams E911 Automation generated execution plan'
-                Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# The following commands are what the workflow would execute in a live scenario'
-                Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# These must be executed from a valid MicrosoftTeams PowerShell session'
-                Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# These commands must be executed in-order in the same PowerShell session'
+                if ($ValidateOnly) {
+                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# Teams E911 Automation generated execution plan'
+                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# The following commands are what the workflow would execute in a live scenario'
+                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# These must be executed from a valid MicrosoftTeams PowerShell session'
+                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# These commands must be executed in-order in the same PowerShell session'
+                }
+                else {
+                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# Teams E911 Automation executed commands'
+                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value "# The following commands are what workflow executed at $Date"
+                }
                 Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# *******************************************************************************'
                 Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value ''
             }
             catch {
+                Write-Warning "file write failed: $($_.Exception.Message)"
                 $ExecutionPlanPath = ''
             }
             if ([string]::IsNullOrEmpty($ExecutionPlanPath)) {
@@ -53,11 +62,10 @@ function Set-CsE911OnlineChange {
         }
         $PendingChanges = [Collections.Generic.Dictionary[int, Collections.Generic.List[ChangeObject]]]::new()
         $i = 0
-        $prevI = $i
         $shouldp = $true
         $changeCount = 0
-        $LastSeconds = $vsw.Elapsed.TotalSeconds
-        $interval = 5
+        $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+        Write-Information "Processing changes with 0 dependencies"
     }
     process {
         foreach ($Change in $PendingChange) {
@@ -67,27 +75,23 @@ function Set-CsE911OnlineChange {
             else {
                 $Total = $PendingChange.Count
             }
-            if (($vsw.Elapsed.TotalSeconds - $LastSeconds) -gt ($interval + 1)) { $shouldp = $true }
-            if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalSeconds - $LastSeconds) -gt $interval)) {
-                if ($i -gt 0) { $shouldp = $false }
+            if (!$shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval) { $shouldp = $true }
+            if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval)) {
+                $shouldp = $false
                 $ProgressParams = @{
-                    Activity         = 'Processing changes'
-                    CurrentOperation = '[{0:F3}s] ({1}{2}) {3} Change: {4}' -f $vsw.Elapsed.TotalSeconds, $i, $(if ($Total -gt 1) { "/$Total" }), $Change.UpdateType, $Change.Id
-                    Id               = $MyInvocation.PipelinePosition
+                    Activity = 'Processing changes'
+                    Status   = '[{0:F3}s] ({1}{2}) {3} Change: {4}' -f $vsw.Elapsed.TotalSeconds, $i, $(if ($Total -gt 1) { "/$Total" }), $Change.UpdateType, $(if ($Change.UpdateType -eq [UpdateType]::Online) { $Change.ProcessInfo } else { $Change.Id })
+                    Id       = $MyInvocation.PipelinePosition
                 }
-                if ($i -gt 0 -and $Total -gt 1) {
-                    $LastSegment = $vsw.Elapsed.TotalSeconds - $LastSeconds
-                    $Remaining = [int]((($Total - $i) / ($i - $prevI)) * $LastSegment)
-                    $ProgressParams['PercentComplete'] = ($i / $Total) * 100
-                    $ProgressParams['SecondsRemaining'] = $Remaining
+                if ($Total -gt 1) {
+                    $ProgressParams['PercentComplete'] = [int](($i / $Total) * 100)
                 }
-                $LastSeconds = $vsw.Elapsed.TotalSeconds
-                $prevI = $i
+                $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
                 Write-Progress @ProgressParams
             }
             $i++
             if ($null -ne $Change.CommandObject -and $Change.CommandObject.HasWarnings()) {
-                Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) has warnings, skipping further processing"
+                Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) has warnings, skipping further processing"
                 if ($Change.UpdateType -eq [UpdateType]::Source) {
                     $Change.DependsOn.Clear()
                     $Change.CommandObject | ConvertFrom-Json | Write-Output
@@ -96,17 +100,17 @@ function Set-CsE911OnlineChange {
             }
             if ($Change.DependsOn.Count() -eq 0) {
                 if ($Change.UpdateType -eq [UpdateType]::Source) {
-                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) is a source change with no needed changes"
+                    Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) is a source change with no needed changes"
                     $Change.CommandObject | ConvertFrom-Json | Write-Output
                     continue
                 }
                 $changeCount++
                 try {
-                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)"
+                    Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)"
                     if (!$ValidateOnly) {
                         Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop | Out-Null
                     }
-                    if ($ValidateOnly -and $null -ne $ExecutionPlanPath) {
+                    if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
                         $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath
                     }
                     [E911ModuleState]::ShouldClear = $true
@@ -114,6 +118,10 @@ function Set-CsE911OnlineChange {
                 catch {
                     $Change.CommandObject.Warning.Add([WarningType]::OnlineChangeError, "Command: { $($Change.ProcessInfo) } ErrorMessage: $($_.Exception.Message)")
                     Write-Warning "Command: { $($Change.ProcessInfo) } ErrorMessage: $($_.Exception.Message)"
+                    if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
+                        "# COMMAND FAILED! ERROR:" | Add-Content -Path $ExecutionPlanPath
+                        "# $($_.Exception.Message -replace "`n","`n# ")" | Add-Content -Path $ExecutionPlanPath
+                    }
                 }
                 continue
             }
@@ -124,40 +132,29 @@ function Set-CsE911OnlineChange {
         }
     }
     end {
-        if ($PendingChanges.Keys.Count -eq 0) {
-            $vsw.Stop()
-            Write-Progress -Activity 'Processing changes' -Completed -Id $MyInvocation.PipelinePosition
-            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
-            return
-        }
         $shouldp = $true
-        $LastSeconds = $vsw.Elapsed.TotalSeconds
-        $prevI = $i
-        $Total = $PendingChange.Count # $i + $PendingChanges.Values.ForEach({$_.Where({$_.UpdateType -eq [UpdateType]::Online})}).Count
+        $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+        $Total = $PendingChange.Count
         foreach ($DependencyCount in $PendingChanges.Keys) {
+            Write-Information "Processing changes with $($DependencyCount) dependencies"
             foreach ($Change in $PendingChanges[$DependencyCount]) {
-                if (($vsw.Elapsed.TotalSeconds - $LastSeconds) -gt ($interval + 1)) { $shouldp = $true }
-                if ($shouldp -and ($vsw.Elapsed.TotalSeconds - $LastSeconds) -gt $interval) {
+                if (!$shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval) { $shouldp = $true }
+                if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval)) {
                     $shouldp = $false
                     $ProgressParams = @{
-                        Activity         = "Processing changes"
-                        CurrentOperation = '[{0:F3}s] ({1}{2}) {3} Change: {4}' -f $vsw.Elapsed.TotalSeconds, $i, $(if ($Total -gt 1) { "/$Total" }), $Change.UpdateType, $Change.Id
-                        Id               = $MyInvocation.PipelinePosition
+                        Activity = 'Processing changes'
+                        Status   = '[{0:F3}s] ({1}{2}) {3} Change: {4}' -f $vsw.Elapsed.TotalSeconds, $i, $(if ($Total -gt 1) { "/$Total" }), $Change.UpdateType, $(if ($Change.UpdateType -eq [UpdateType]::Online) { $Change.ProcessInfo } else { $Change.Id })
+                        Id       = $MyInvocation.PipelinePosition
                     }
-                    if ($i -gt 0 -and $Total -gt 1) {
-                        $SecondsPer = $i / $LastSeconds
-                        # $LastSegment = $vsw.Elapsed.TotalSeconds - $LastSeconds
-                        $Remaining = ($Total - $i) * $SecondsPer
-                        $ProgressParams['PercentComplete'] = ($i / $Total) * 100
-                        $ProgressParams['SecondsRemaining'] = $Remaining
+                    if ($Total -gt 1) {
+                        $ProgressParams['PercentComplete'] = [int](($i / $Total) * 100)
                     }
-                    $LastSeconds = $vsw.Elapsed.TotalSeconds
-                    $prevI = $i
+                    $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
                     Write-Progress @ProgressParams
                 }
                 $i++
                 if ($null -ne $Change.CommandObject -and $Change.CommandObject.HasWarnings()) {
-                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) has warnings, skipping further processing"
+                    Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) has warnings, skipping further processing"
                     if ($Change.UpdateType -eq [UpdateType]::Source) {
                         $Change.DependsOn.Clear()
                         $Change.CommandObject | ConvertFrom-Json | Write-Output
@@ -165,17 +162,17 @@ function Set-CsE911OnlineChange {
                     continue
                 }
                 if ($Change.UpdateType -eq [UpdateType]::Source) {
-                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) is a source change with no needed changes"
+                    Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) is a source change with no needed changes"
                     $Change.CommandObject | ConvertFrom-Json | Write-Output
                     continue
                 }
                 $changeCount++
                 try {
-                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)"
+                    Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)"
                     if (!$ValidateOnly) {
                         Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop | Out-Null
                     }
-                    if ($ValidateOnly -and $null -ne $ExecutionPlanPath) {
+                    if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
                         $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath
                     }
                     [E911ModuleState]::ShouldClear = $true
@@ -183,12 +180,15 @@ function Set-CsE911OnlineChange {
                 catch {
                     $Change.CommandObject.Warning.Add([WarningType]::OnlineChangeError, "Command: { $($Change.ProcessInfo) } ErrorMessage: $($_.Exception.Message)")
                     Write-Warning "Command: { $($Change.ProcessInfo) } ErrorMessage: $($_.Exception.Message)"
+                    if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
+                        "# COMMAND FAILED! ERROR:" | Add-Content -Path $ExecutionPlanPath
+                        "# $($_.Exception.Message -replace "`n","`n# ")" | Add-Content -Path $ExecutionPlanPath
+                    }
                 }
             }
         }
         $vsw.Stop()
         Write-Progress -Activity 'Processing changes' -Completed -Id $MyInvocation.PipelinePosition
-        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
+        Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
     }
 }
-

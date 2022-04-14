@@ -11,11 +11,11 @@ class E911DataRow {
     hidden [ItemId] $Id = [ItemId]::new()
 
     # Constructors
-    hidden [void] Init([PSCustomObject] $obj) {
+    hidden [void] Init([PSCustomObject] $obj, [bool]$ForceSkipValidation) {
         $this._originalRow = $obj
         $this.Warning = [WarningList]::new($obj.Warning)
 
-        $ShouldValidate = $this.HasChanged()
+        $ShouldValidate = !$ForceSkipValidation -and ($this.HasChanged() -or [E911ModuleState]::ForceOnlineCheck)
         if (!$ShouldValidate) {
             $this.Warning.Clear()
         }
@@ -54,11 +54,15 @@ class E911DataRow {
     }
 
     E911DataRow() {
-        $this.Init($null)
+        $this.Init($null, $false)
     }
 
     E911DataRow([PSCustomObject]$obj) {
-        $this.Init($obj)
+        $this.Init($obj, $false)
+    }
+
+    E911DataRow([PSCustomObject]$obj, [bool] $ForceSkipValidation) {
+        $this.Init($obj, $ForceSkipValidation)
     }
 
     E911DataRow([E911NetworkObject] $nObj) {
@@ -169,17 +173,15 @@ class E911DataRow {
         }
         if ($null -eq $this._networkObject -or $null -eq $this._networkObject._location -or $null -eq $this._networkObject._location._address) {
             $this.Warning.Add([WarningType]::GeneralFailure, 'Row is missing network object, location, or address')
+        }
+        if ($this.HasWarnings()) {
             $GetCommands = $false
         }
         $d = [DependsOn]::new()
         if ($GetCommands) {
             $ac = $this._networkObject._location._address.GetCommand()
-            $NeedToGetAddress = $false
-            $UseVariable = $false
             if (![string]::IsNullOrEmpty($ac)) {
                 Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($this.RowName()): Address new or changed!"
-                $NeedToGetAddress = $this._location._isDefault
-                $UseVariable = $true
                 $l.Add([ChangeObject]@{
                         UpdateType    = [UpdateType]::Online
                         ProcessInfo   = $ac
@@ -187,12 +189,14 @@ class E911DataRow {
                         CommandType   = [CommandType]::Address
                         CommandObject = $this._networkObject._location._address
                     })
+                
+            }
+            if ($this._networkObject._location._address._commandGenerated) {
                 $d.Add($this._networkObject._location._address.Id)
             }
             $lc = $this._networkObject._location.GetCommand()
             if (![string]::IsNullOrEmpty($lc)) {
                 Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($this.RowName()): Location new or changed!"
-                $UseVariable = $true
                 $l.Add([ChangeObject]@{
                         UpdateType    = [UpdateType]::Online
                         ProcessInfo   = $lc
@@ -200,23 +204,13 @@ class E911DataRow {
                         CommandType   = [CommandType]::Location
                         CommandObject = $this._networkObject._location
                     })
+            }
+            if ($this._networkObject._location._commandGenerated) {
                 $d.Add($this._networkObject._location.Id)
             }
-            $nc = $this._networkObject.GetCommand($UseVariable)
+            $nc = $this._networkObject.GetCommand()
             if (![string]::IsNullOrEmpty($nc)) {
                 Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($this.RowName()): Network Object new or changed!"
-                if ($NeedToGetAddress) {
-                    $gac = $this._networkObject._location._address.GetDefaultLocationCommand()
-                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($this.RowName()): Uses default location, must get from Civic Address!"
-                    $l.Add([ChangeObject]@{
-                            UpdateType    = [UpdateType]::Online
-                            ProcessInfo   = $gac
-                            DependsOn     = $d
-                            CommandType   = [CommandType]::GetAddress
-                            CommandObject = $this._networkObject._location._address
-                        })
-                    $d.Add($this._networkObject._location._address.Id)
-                }
                 $l.Add([ChangeObject]@{
                         UpdateType    = [UpdateType]::Online
                         ProcessInfo   = $nc
@@ -224,8 +218,11 @@ class E911DataRow {
                         CommandType   = [CommandType]::NetworkObject
                         CommandObject = $this._networkObject
                     })
+            }
+            if ($this._networkObject._commandGenerated) {
                 $d.Add($this._networkObject.Id)
             }
+            
         }
         $l.Add([ChangeObject]::new($this, $d))
         return $l

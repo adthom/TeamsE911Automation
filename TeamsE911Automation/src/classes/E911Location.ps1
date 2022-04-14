@@ -3,69 +3,31 @@ class E911Location {
     hidden [bool] $_isOnline
     hidden [bool] $_hasChanged
     hidden [bool] $_isDefault
+    hidden [bool] $_commandGenerated
     hidden [string] $_hash
     hidden [string] $_command
     hidden [E911Address] $_address
 
     E911Location ([PSCustomObject] $obj, [bool] $ShouldValidate) {
         if (![string]::IsNullOrEmpty($obj.LocationId)) {
+            # made via online location
             $this._isOnline = $true
             $this.Id = [ItemId]::new($obj.LocationId)
-        }
-        else {
-            $this.Id = [ItemId]::new()
-            $this._isOnline = $false
-        }
-        $this._hasChanged = $false
-        $this.Warning = [WarningList]::new()
-        try {
-            $this._address = [E911ModuleState]::GetOrCreateAddress($obj, $ShouldValidate)
-        }
-        catch {
-            $this.Warning.Add([WarningType]::InvalidInput, "Address Creation Failed: $($_.Exception.Message)")
-        }
-        if ($null -ne $this._address.Warning -and $this._address.Warning.HasWarnings()) {
-            $this.Warning.AddRange($this._address.Warning)
-        }
-        if ($ShouldValidate -and [string]::IsNullOrEmpty($obj.Location)) {
-            $this.Warning.Add([WarningType]::InvalidInput, 'Location missing')
-        }
-        $this.Location = $obj.Location
-        $this.Elin = $obj.Elin
-
-        $this._AddCompanyName()
-        $this._AddCompanyTaxId()
-        $this._AddDescription()
-        $this._AddAddress()
-        $this._AddCity()
-        $this._AddStateOrProvince()
-        $this._AddPostalCode()
-        $this._AddCountryOrRegion()
-        $this._AddLatitude()
-        $this._AddLongitude()
-    }
-
-    E911Location ([PSCustomObject] $obj, [bool] $ShouldValidate, [bool] $Default) {
-        if (![string]::IsNullOrEmpty($obj.LocationId)) {
-            # made via online location w/ no location field (default)
-            $this._isOnline = $true
-            $this.Id = [ItemId]::new($obj.LocationId)
-            # $ raw location id for variable here
-            
         }
         elseif (![string]::IsNullOrEmpty($obj.DefaultLocationId)) {
             # if location is made via civicaddress
             $this._isOnline = $true
             $this.Id = [ItemId]::new($obj.DefaultLocationId)
-            # $CivicAddressIdVar + .DefaultLocationId
         }
         else {
-            # new entry for default location
+            # new entry for location
             $this._isOnline = $false
             $this.Id = [ItemId]::new()
         }
-        $this._isDefault = $true
+
+        $this._isDefault = [string]::IsNullOrEmpty($obj.Location)
         $this._hasChanged = $false
+        $this._commandGenerated = $false
         $this.Warning = [WarningList]::new()
         try {
             $this._address = [E911ModuleState]::GetOrCreateAddress($obj, $ShouldValidate)
@@ -76,6 +38,11 @@ class E911Location {
         if ($null -ne $this._address.Warning -and $this._address.Warning.HasWarnings()) {
             $this.Warning.AddRange($this._address.Warning)
         }
+        if (![string]::IsNullOrEmpty($obj.CivicAddressId) -and $this._address.Id.ToString().ToLower() -ne $obj.CivicAddressId.ToLower()) {
+            # re-home this object to the other matching address id
+            $this._hasChanged = $true
+        }
+
         $this.Location = $obj.Location
         $this.Elin = $obj.Elin
 
@@ -130,11 +97,16 @@ class E911Location {
     }
 
     [string] GetCommand() {
-        if ([string]::IsNullOrEmpty($this._command) -and $this._hasChanged -and !$this._isDefault) {
+        if ($this._commandGenerated -or ($this._isOnline -and !$this._hasChanged) -or $this._isDefault) {
+            return ''
+        }
+        if ([string]::IsNullOrEmpty($this._command)) {
             $sb = [Text.StringBuilder]::new()
-            $CivicAddressId = '{0}.CivicAddressId' -f $this._address.Id.VariableName()
             if ($this._address._isOnline) {
                 $CivicAddressId = '"{0}"' -f $this._address.Id.ToString()
+            }
+            else {
+                $CivicAddressId = '{0}.CivicAddressId' -f $this._address.Id.VariableName()
             }
             $LocationParams = @{
                 CivicAddressId = $CivicAddressId
@@ -143,10 +115,11 @@ class E911Location {
             if (![string]::IsNullOrEmpty($this.Elin)) {
                 $LocationParams['Elin'] = '"{0}"' -f $this.Elin
             }
-            [void]$sb.AppendFormat('{0} = New-CsOnlineLisLocation -ErrorAction Stop', $this.Id.VariableName())
+            [void]$sb.AppendFormat('{0} = New-CsOnlineLisLocation', $this.Id.VariableName())
             foreach ($Parameter in $LocationParams.Keys) {
                 [void]$sb.AppendFormat(' -{0} {1}', $Parameter, $LocationParams[$Parameter])
             }
+            $sb.Append(' -ErrorAction Stop | Select-Object -Property LocationId')
             $this._command = $sb.ToString()
         }
         return $this._command

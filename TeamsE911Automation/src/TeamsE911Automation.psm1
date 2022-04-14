@@ -1,3 +1,7 @@
+# This document is provided "as-is." Information and views expressed in this document,
+# including URL and other Internet Web site references, may change without notice. You bear the risk of using it.
+# This document does not provide you with any legal rights to any intellectual property in any Microsoft product.
+# You may copy and use this document for your internal, reference purposes. You may modify this document for your internal purposes
 
 # (imported from .\classes\ChangeObject.ps1)
 class ChangeObject {
@@ -79,7 +83,6 @@ class ChangeObject {
 enum CommandType {
     Default
     Address
-    GetAddress
     Location
     NetworkObject
 }
@@ -155,6 +158,7 @@ class E911Address {
     hidden [string] $DefaultLocationId
     hidden [bool] $_isOnline
     hidden [bool] $_hasChanged
+    hidden [bool] $_commandGenerated
 
     hidden [void] Init([PSCustomObject] $obj, [bool]$ShouldValidate) {
         if (![string]::IsNullOrEmpty($obj.CivicAddressId)) {
@@ -166,6 +170,7 @@ class E911Address {
         $this.Warning = [WarningList]::new()
         $WarnType = [WarningType]::InvalidInput
 
+        $this._commandGenerated = $false
         $addr = [E911Address]::_convertOnlineAddress($obj)
         $this._isOnline = $true
         $this._hasChanged = $false
@@ -320,12 +325,11 @@ class E911Address {
         return $this.Warning.ValidationFailureCount()
     }
 
-    [string] GetDefaultLocationCommand() {
-        return '{0} = Get-CsOnlineLisCivicAddress -ErrorAction Stop -CivicAddressId "{1}"' -f $this.Id.VariableName(), $this.Id.ToString()
-    }
-
     [string] GetCommand() {
-        if ([string]::IsNullOrEmpty($this._command) -and $this._hasChanged) {
+        if ($this._commandGenerated -or ($this._isOnline -and !$this._hasChanged)) {
+            return ''
+        }
+        if ([string]::IsNullOrEmpty($this._command)) {
             $sb = [Text.StringBuilder]::new()
             $AddressParams = @{
                 StreetName      = $this.StreetName()
@@ -355,10 +359,11 @@ class E911Address {
             if (![string]::IsNullOrEmpty($this.Elin)) {
                 $AddressParams['Elin'] = $this.Elin
             }
-            [void]$sb.AppendFormat("{0} = New-CsOnlineLisCivicAddress -ErrorAction Stop", $this.Id.VariableName())
+            [void]$sb.AppendFormat("{0} = New-CsOnlineLisCivicAddress", $this.Id.VariableName())
             foreach ($Parameter in $AddressParams.Keys) {
                 [void]$sb.AppendFormat(' -{0} "{1}"', $Parameter, $AddressParams[$Parameter])
             }
+            $sb.Append(' -ErrorAction Stop | Select-Object -Property CivicAddressId, DefaultLocationId')
             $this._command = $sb.ToString()
         }
         return $this._command
@@ -468,11 +473,11 @@ class E911DataRow {
     hidden [ItemId] $Id = [ItemId]::new()
 
     # Constructors
-    hidden [void] Init([PSCustomObject] $obj) {
+    hidden [void] Init([PSCustomObject] $obj, [bool]$ForceSkipValidation) {
         $this._originalRow = $obj
         $this.Warning = [WarningList]::new($obj.Warning)
 
-        $ShouldValidate = $this.HasChanged()
+        $ShouldValidate = !$ForceSkipValidation -and ($this.HasChanged() -or [E911ModuleState]::ForceOnlineCheck)
         if (!$ShouldValidate) {
             $this.Warning.Clear()
         }
@@ -511,11 +516,15 @@ class E911DataRow {
     }
 
     E911DataRow() {
-        $this.Init($null)
+        $this.Init($null, $false)
     }
 
     E911DataRow([PSCustomObject]$obj) {
-        $this.Init($obj)
+        $this.Init($obj, $false)
+    }
+
+    E911DataRow([PSCustomObject]$obj, [bool] $ForceSkipValidation) {
+        $this.Init($obj, $ForceSkipValidation)
     }
 
     E911DataRow([E911NetworkObject] $nObj) {
@@ -626,17 +635,15 @@ class E911DataRow {
         }
         if ($null -eq $this._networkObject -or $null -eq $this._networkObject._location -or $null -eq $this._networkObject._location._address) {
             $this.Warning.Add([WarningType]::GeneralFailure, 'Row is missing network object, location, or address')
+        }
+        if ($this.HasWarnings()) {
             $GetCommands = $false
         }
         $d = [DependsOn]::new()
         if ($GetCommands) {
             $ac = $this._networkObject._location._address.GetCommand()
-            $NeedToGetAddress = $false
-            $UseVariable = $false
             if (![string]::IsNullOrEmpty($ac)) {
                 Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($this.RowName()): Address new or changed!"
-                $NeedToGetAddress = $this._location._isDefault
-                $UseVariable = $true
                 $l.Add([ChangeObject]@{
                         UpdateType    = [UpdateType]::Online
                         ProcessInfo   = $ac
@@ -644,12 +651,14 @@ class E911DataRow {
                         CommandType   = [CommandType]::Address
                         CommandObject = $this._networkObject._location._address
                     })
+                
+            }
+            if ($this._networkObject._location._address._commandGenerated) {
                 $d.Add($this._networkObject._location._address.Id)
             }
             $lc = $this._networkObject._location.GetCommand()
             if (![string]::IsNullOrEmpty($lc)) {
                 Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($this.RowName()): Location new or changed!"
-                $UseVariable = $true
                 $l.Add([ChangeObject]@{
                         UpdateType    = [UpdateType]::Online
                         ProcessInfo   = $lc
@@ -657,23 +666,13 @@ class E911DataRow {
                         CommandType   = [CommandType]::Location
                         CommandObject = $this._networkObject._location
                     })
+            }
+            if ($this._networkObject._location._commandGenerated) {
                 $d.Add($this._networkObject._location.Id)
             }
-            $nc = $this._networkObject.GetCommand($UseVariable)
+            $nc = $this._networkObject.GetCommand()
             if (![string]::IsNullOrEmpty($nc)) {
                 Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($this.RowName()): Network Object new or changed!"
-                if ($NeedToGetAddress) {
-                    $gac = $this._networkObject._location._address.GetDefaultLocationCommand()
-                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($this.RowName()): Uses default location, must get from Civic Address!"
-                    $l.Add([ChangeObject]@{
-                            UpdateType    = [UpdateType]::Online
-                            ProcessInfo   = $gac
-                            DependsOn     = $d
-                            CommandType   = [CommandType]::GetAddress
-                            CommandObject = $this._networkObject._location._address
-                        })
-                    $d.Add($this._networkObject._location._address.Id)
-                }
                 $l.Add([ChangeObject]@{
                         UpdateType    = [UpdateType]::Online
                         ProcessInfo   = $nc
@@ -681,8 +680,11 @@ class E911DataRow {
                         CommandType   = [CommandType]::NetworkObject
                         CommandObject = $this._networkObject
                     })
+            }
+            if ($this._networkObject._commandGenerated) {
                 $d.Add($this._networkObject.Id)
             }
+            
         }
         $l.Add([ChangeObject]::new($this, $d))
         return $l
@@ -804,69 +806,31 @@ class E911Location {
     hidden [bool] $_isOnline
     hidden [bool] $_hasChanged
     hidden [bool] $_isDefault
+    hidden [bool] $_commandGenerated
     hidden [string] $_hash
     hidden [string] $_command
     hidden [E911Address] $_address
 
     E911Location ([PSCustomObject] $obj, [bool] $ShouldValidate) {
         if (![string]::IsNullOrEmpty($obj.LocationId)) {
+            # made via online location
             $this._isOnline = $true
             $this.Id = [ItemId]::new($obj.LocationId)
-        }
-        else {
-            $this.Id = [ItemId]::new()
-            $this._isOnline = $false
-        }
-        $this._hasChanged = $false
-        $this.Warning = [WarningList]::new()
-        try {
-            $this._address = [E911ModuleState]::GetOrCreateAddress($obj, $ShouldValidate)
-        }
-        catch {
-            $this.Warning.Add([WarningType]::InvalidInput, "Address Creation Failed: $($_.Exception.Message)")
-        }
-        if ($null -ne $this._address.Warning -and $this._address.Warning.HasWarnings()) {
-            $this.Warning.AddRange($this._address.Warning)
-        }
-        if ($ShouldValidate -and [string]::IsNullOrEmpty($obj.Location)) {
-            $this.Warning.Add([WarningType]::InvalidInput, 'Location missing')
-        }
-        $this.Location = $obj.Location
-        $this.Elin = $obj.Elin
-
-        $this._AddCompanyName()
-        $this._AddCompanyTaxId()
-        $this._AddDescription()
-        $this._AddAddress()
-        $this._AddCity()
-        $this._AddStateOrProvince()
-        $this._AddPostalCode()
-        $this._AddCountryOrRegion()
-        $this._AddLatitude()
-        $this._AddLongitude()
-    }
-
-    E911Location ([PSCustomObject] $obj, [bool] $ShouldValidate, [bool] $Default) {
-        if (![string]::IsNullOrEmpty($obj.LocationId)) {
-            # made via online location w/ no location field (default)
-            $this._isOnline = $true
-            $this.Id = [ItemId]::new($obj.LocationId)
-            # $ raw location id for variable here
-            
         }
         elseif (![string]::IsNullOrEmpty($obj.DefaultLocationId)) {
             # if location is made via civicaddress
             $this._isOnline = $true
             $this.Id = [ItemId]::new($obj.DefaultLocationId)
-            # $CivicAddressIdVar + .DefaultLocationId
         }
         else {
-            # new entry for default location
+            # new entry for location
             $this._isOnline = $false
             $this.Id = [ItemId]::new()
         }
-        $this._isDefault = $true
+
+        $this._isDefault = [string]::IsNullOrEmpty($obj.Location)
         $this._hasChanged = $false
+        $this._commandGenerated = $false
         $this.Warning = [WarningList]::new()
         try {
             $this._address = [E911ModuleState]::GetOrCreateAddress($obj, $ShouldValidate)
@@ -877,6 +841,11 @@ class E911Location {
         if ($null -ne $this._address.Warning -and $this._address.Warning.HasWarnings()) {
             $this.Warning.AddRange($this._address.Warning)
         }
+        if (![string]::IsNullOrEmpty($obj.CivicAddressId) -and $this._address.Id.ToString().ToLower() -ne $obj.CivicAddressId.ToLower()) {
+            # re-home this object to the other matching address id
+            $this._hasChanged = $true
+        }
+
         $this.Location = $obj.Location
         $this.Elin = $obj.Elin
 
@@ -931,11 +900,16 @@ class E911Location {
     }
 
     [string] GetCommand() {
-        if ([string]::IsNullOrEmpty($this._command) -and $this._hasChanged -and !$this._isDefault) {
+        if ($this._commandGenerated -or ($this._isOnline -and !$this._hasChanged) -or $this._isDefault) {
+            return ''
+        }
+        if ([string]::IsNullOrEmpty($this._command)) {
             $sb = [Text.StringBuilder]::new()
-            $CivicAddressId = '{0}.CivicAddressId' -f $this._address.Id.VariableName()
             if ($this._address._isOnline) {
                 $CivicAddressId = '"{0}"' -f $this._address.Id.ToString()
+            }
+            else {
+                $CivicAddressId = '{0}.CivicAddressId' -f $this._address.Id.VariableName()
             }
             $LocationParams = @{
                 CivicAddressId = $CivicAddressId
@@ -944,10 +918,11 @@ class E911Location {
             if (![string]::IsNullOrEmpty($this.Elin)) {
                 $LocationParams['Elin'] = '"{0}"' -f $this.Elin
             }
-            [void]$sb.AppendFormat('{0} = New-CsOnlineLisLocation -ErrorAction Stop', $this.Id.VariableName())
+            [void]$sb.AppendFormat('{0} = New-CsOnlineLisLocation', $this.Id.VariableName())
             foreach ($Parameter in $LocationParams.Keys) {
                 [void]$sb.AppendFormat(' -{0} {1}', $Parameter, $LocationParams[$Parameter])
             }
+            $sb.Append(' -ErrorAction Stop | Select-Object -Property LocationId')
             $this._command = $sb.ToString()
         }
         return $this._command
@@ -1175,8 +1150,6 @@ class E911ModuleState {
 
     hidden static [System.Collections.Generic.Dictionary[string, E911Address]] $OnlineAddresses = [System.Collections.Generic.Dictionary[string, E911Address]]::new()
     hidden static [System.Collections.Generic.Dictionary[string, E911Address]] $Addresses = [System.Collections.Generic.Dictionary[string, E911Address]]::new()
-    hidden static [System.Collections.Generic.Dictionary[string, E911Location]] $OnlineDefaultLocations = [System.Collections.Generic.Dictionary[string, E911Location]]::new()
-    hidden static [System.Collections.Generic.Dictionary[string, E911Location]] $DefaultLocations = [System.Collections.Generic.Dictionary[string, E911Location]]::new()
     hidden static [System.Collections.Generic.Dictionary[string, E911Location]] $OnlineLocations = [System.Collections.Generic.Dictionary[string, E911Location]]::new()
     hidden static [System.Collections.Generic.Dictionary[string, E911Location]] $Locations = [System.Collections.Generic.Dictionary[string, E911Location]]::new()
     hidden static [System.Collections.Generic.Dictionary[string, E911NetworkObject]] $OnlineNetworkObjects = [System.Collections.Generic.Dictionary[string, E911NetworkObject]]::new()
@@ -1203,6 +1176,10 @@ class E911ModuleState {
         if ($null -eq $Online -and [E911ModuleState]::OnlineAddresses.ContainsKey($Hash)) {
             $Online = [E911ModuleState]::OnlineAddresses[$Hash]
             if ([E911Address]::Equals($Online, $obj)) {
+                if (![string]::IsNullOrEmpty($obj.CivicAddressId)) {
+                    # found a duplicate online address, lets add this address id here so we can link this up later
+                    [E911ModuleState]::OnlineAddresses.Add($obj.CivicAddressId.ToLower(), $Online)
+                }
                 return $Online
             }
             $OnlineChanged = $true
@@ -1223,7 +1200,7 @@ class E911ModuleState {
             }
             return $Test
         }
-        if ((!$_.isOnline -and $ShouldValidate) -or $OnlineChanged) {
+        if ((!$New._isOnline -and $ShouldValidate) -or $OnlineChanged) {
             $New._hasChanged = $true
             [E911ModuleState]::Addresses.Add($New.GetHash(), $New)
         }
@@ -1237,53 +1214,6 @@ class E911ModuleState {
         }
         return $New
     }
-    static [E911Location] GetDefaultLocation([PSCustomObject] $obj, [bool]$ShouldValidate) {
-        $OnlineChanged = $false
-        $Online = $null
-        if (![string]::IsNullOrEmpty($obj.LocationId) -and [E911ModuleState]::OnlineDefaultLocations.ContainsKey($obj.LocationId.ToLower())) {
-            $Online = [E911ModuleState]::OnlineDefaultLocations[$obj.LocationId.ToLower()]
-            if ([E911Address]::Equals($Online, $obj)) {
-                return $Online
-            }
-            $OnlineChanged = $true
-        }
-        if (!$OnlineChanged -and ![string]::IsNullOrEmpty($obj.DefaultLocationId) -and [E911ModuleState]::OnlineDefaultLocations.ContainsKey($obj.DefaultLocationId.ToLower())) {
-            $Online = [E911ModuleState]::OnlineDefaultLocations[$obj.DefaultLocationId.ToLower()]
-            if ([E911Address]::Equals($Online, $obj)) {
-                return $Online
-            }
-            $OnlineChanged = $true
-        }
-        $Hash = [E911Address]::GetHash($obj)
-        if ([E911ModuleState]::DefaultLocations.ContainsKey($Hash)) {
-            $Test = [E911ModuleState]::DefaultLocations[$Hash]
-            if ([E911Address]::Equals($Test, $obj)) {
-                return $Test
-            }
-        }
-        if ($null -eq $Online -and [E911ModuleState]::OnlineDefaultLocations.ContainsKey($Hash)) {
-            $Online = [E911ModuleState]::OnlineDefaultLocations[$Hash]
-            if ([E911Address]::Equals($Online, $obj) -and $Online.Elin -eq $obj.Elin) {
-                return $Online
-            }
-            $OnlineChanged = $true
-        }
-        $New = [E911Location]::new($obj, $ShouldValidate, $true)
-        if ((!$_.isOnline -and $ShouldValidate)) {
-            $New._hasChanged = $true
-            [E911ModuleState]::DefaultLocations.Add($Hash, $New)
-        }
-        if ($OnlineChanged) {
-            $New._hasChanged = $true
-            [E911ModuleState]::OnlineDefaultLocations[$Hash] = $New
-            [E911ModuleState]::OnlineDefaultLocations[$New.Id.ToString().ToLower()] = $New
-        }
-        if ($New._isOnline -and !$OnlineChanged) {  # initial adding of online default location
-            [E911ModuleState]::OnlineDefaultLocations.Add($Hash, $New)
-            [E911ModuleState]::OnlineDefaultLocations.Add($New.Id.ToString().ToLower(), $New)
-        }
-        return $New
-    }
     static [E911Location] GetOrCreateLocation([PSCustomObject] $obj, [bool]$ShouldValidate) {
         $OnlineChanged = $false
         $Online = $null
@@ -1292,6 +1222,15 @@ class E911ModuleState {
             if (([string]::IsNullOrEmpty($obj.Location) -and [string]::IsNullOrEmpty($obj.CountryOrRegion)) -or [E911Location]::Equals($Online, $obj)) {
                 return $Online
             }
+            # not sure we should ever get here...
+            $OnlineChanged = $true
+        }
+        if (!$OnlineChanged -and ![string]::IsNullOrEmpty($obj.DefaultLocationId) -and [E911ModuleState]::OnlineLocations.ContainsKey($obj.DefaultLocationId.ToLower())) {
+            $Online = [E911ModuleState]::OnlineLocations[$obj.DefaultLocationId.ToLower()]
+            if ([E911Location]::Equals($Online, $obj)) {
+                return $Online
+            }
+            # not sure we should ever get here...
             $OnlineChanged = $true
         }
         $Hash = [E911Location]::GetHash($obj)
@@ -1301,12 +1240,16 @@ class E911ModuleState {
         if ($null -eq $Online -and [E911ModuleState]::OnlineLocations.ContainsKey($Hash)) {
             $Online = [E911ModuleState]::OnlineLocations[$Hash]
             if ([E911Location]::Equals($Online, $obj)) {
+                if (![string]::IsNullOrEmpty($obj.LocationId)) {
+                    # found a duplicate online location, lets add this location id here so we can link this up later
+                    [E911ModuleState]::OnlineLocations.Add($obj.LocationId.ToLower(), $Online)
+                }
                 return $Online
             }
             $OnlineChanged = $true
         }
         $New = [E911Location]::new($obj, $ShouldValidate)
-        if ((!$_.isOnline -and $ShouldValidate) -or $OnlineChanged) {
+        if ((!$New._isOnline -and $ShouldValidate) -or $OnlineChanged) {
             $New._hasChanged = $true
             [E911ModuleState]::Locations.Add($New.GetHash(), $New)
         }
@@ -1345,7 +1288,7 @@ class E911ModuleState {
         if ($dup) {
             $New.Warning.Add([WarningType]::DuplicateNetworkObject, "$($New.Type):$($New.Identifier) exists in other rows")
         }
-        if (!$dup -and $New.Type -ne [NetworkObjectType]::Unknown -and ((!$_.isOnline -and $ShouldValidate) -or $OnlineChanged)) {
+        if (!$dup -and $New.Type -ne [NetworkObjectType]::Unknown -and ((!$New._isOnline -and $ShouldValidate) -or $OnlineChanged)) {
             $New._hasChanged = $true
             [E911ModuleState]::NetworkObjects.Add($New.GetHash(), $New)
         }
@@ -1376,8 +1319,6 @@ class E911ModuleState {
         $AddrCount = [E911ModuleState]::Addresses.Count
         $OnlineLocCount = [E911ModuleState]::OnlineLocations.Count
         $LocCount = [E911ModuleState]::Locations.Count
-        $OnlineDefLocCount = [E911ModuleState]::OnlineDefaultLocations.Count
-        $DefLocCount = [E911ModuleState]::DefaultLocations.Count
         $OnlineNobjCount = [E911ModuleState]::OnlineNetworkObjects.Count
         $NobjCount = [E911ModuleState]::NetworkObjects.Count
         [E911ModuleState]::OnlineAddresses.Clear()
@@ -1388,10 +1329,6 @@ class E911ModuleState {
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($OnlineLocCount - [E911ModuleState]::OnlineLocations.Count) Online Locations Removed"
         [E911ModuleState]::Locations.Clear()
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($LocCount - [E911ModuleState]::Locations.Count) Locations Removed"
-        [E911ModuleState]::OnlineDefaultLocations.Clear()
-        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($OnlineDefLocCount - [E911ModuleState]::OnlineDefaultLocations.Count) Online Default Locations Removed"
-        [E911ModuleState]::DefaultLocations.Clear()
-        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($DefLocCount - [E911ModuleState]::DefaultLocations.Count) Default Locations Removed"
         [E911ModuleState]::OnlineNetworkObjects.Clear()
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($OnlineNobjCount - [E911ModuleState]::OnlineNetworkObjects.Count) Online Network Objects Removed"
         [E911ModuleState]::NetworkObjects.Clear()
@@ -1419,6 +1356,8 @@ class E911ModuleState {
         return $CommandName
     }
 
+    hidden static [int] $Interval = 200
+
     static [void] InitializeCaches([Diagnostics.Stopwatch] $vsw) {
         $shouldstop = $false
         if ($null -eq $vsw) {
@@ -1426,34 +1365,115 @@ class E911ModuleState {
             $shouldstop = $true
         }
         $CommandName = [E911ModuleState]::GetCommandName()
-        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Populating Caches..."
         if ([E911ModuleState]::ShouldClear) {
             [E911ModuleState]::FlushCaches($vsw)
         }
+        if (([E911ModuleState]::Addresses.Count + [E911ModuleState]::Locations.Count + [E911ModuleState]::NetworkObjects.Count) -gt 0) {
+            if ($shouldstop) {
+                $vsw.Stop()
+            }
+            return
+        }
+        Write-Progress -Activity 'Caching Online Configuration' -Id 0
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Populating Caches..."
+        Write-Progress -Activity 'Caching Online Configuration' -Id 0 -Status 'Getting Addresses'
         $oAddresses = Get-CsOnlineLisCivicAddress
-        foreach ($oAddress in $oAddresses) {
-            [void][E911ModuleState]::GetOrCreateAddress($oAddress, $false)
-            [void][E911ModuleState]::GetDefaultLocation($oAddress, $false)
+        $shouldp = $true
+        $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+        for ($i = 0; $i -lt $oAddresses.Count; $i++) {
+            if (!$shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval) { $shouldp = $true }
+            if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval)) {
+                if ($i -gt 0) { $shouldp = $false }
+                $ProgressParams = @{
+                    Activity        = 'Caching Online Configuration'
+                    Status          = 'Caching Addresses: [{0:F3}s] ({1}/{2})' -f $vsw.Elapsed.TotalSeconds, $i, $oAddresses.Count
+                    Id              = 0
+                    PercentComplete = [int](($i / $oAddresses.Count) * 100)
+                }
+                $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+                Write-Progress @ProgressParams
+            }
+            $oAddress = $oAddresses[$i]
+            try {
+                [void][E911ModuleState]::GetOrCreateAddress($oAddress, $false)
+            }
+            catch {
+                Write-Warning "Address: $($oAddress.CivicAddressId) could not be cached: $($_.Exception.Message)"
+            }
         }
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Cached $($oAddresses.Count) Civic Addresses"
+        Write-Progress -Activity 'Caching Online Configuration' -Id 0 -Status 'Getting Locations'
         $oLocations = Get-CsOnlineLisLocation
-        foreach ($oLocation in $oLocations) {
-            [void][E911ModuleState]::GetOrCreateLocation($oLocation, $false)
+        $shouldp = $true
+        $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+        for ($i = 0; $i -lt $oLocations.Count; $i++) {
+            if (!$shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval) { $shouldp = $true }
+            if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval)) {
+                if ($i -gt 0) { $shouldp = $false }
+                $ProgressParams = @{
+                    Activity        = 'Caching Online Configuration'
+                    Status          = 'Caching Locations: [{0:F3}s] ({1}/{2})' -f $vsw.Elapsed.TotalSeconds, $i, $oLocations.Count
+                    Id              = 0
+                    PercentComplete = [int](($i / $oLocations.Count) * 100)
+                }
+                $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+                Write-Progress @ProgressParams
+            }
+            $oLocation = $oLocations[$i]
+            try {
+                [void][E911ModuleState]::GetOrCreateLocation($oLocation, $false)
+            }
+            catch {
+                Write-Warning "Location: $($oLocation.LocationId) could not be cached: $($_.Exception.Message)"
+            }
         }
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Cached $($oLocations.Count) Locations"
         $nObjectCount = 0
         foreach ($n in [Enum]::GetNames([NetworkObjectType])) {
             if ($n -eq 'Unknown') { continue }
+            $name = $n
+            if ($name -eq 'Switch') { $name += 'e' }
+            Write-Progress -Activity 'Caching Online Configuration' -Id 0 -Status "Getting ${name}s" -PercentComplete 0
             $oObjects = Invoke-Command -NoNewScope ([ScriptBlock]::Create(('Get-CsOnlineLis{0}' -f $n)))
             $nObjectCount += $oObjects.Count
-            foreach ($oObject in $oObjects) {
-                [void][E911ModuleState]::GetOrCreateNetworkObject($oObject, $false)
+            $shouldp = $true
+            $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+            for ($i = 0; $i -lt $oObjects.Count; $i++) {
+                if (!$shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval) { $shouldp = $true }
+                if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval)) {
+                    if ($i -gt 0) { $shouldp = $false }
+                    $ProgressParams = @{
+                        Activity        = 'Caching Online Configuration'
+                        Status          = 'Caching {0}s: [{1:F3}s] ({2}/{3})' -f $name, $vsw.Elapsed.TotalSeconds, $i, $oObjects.Count
+                        Id              = 0
+                        PercentComplete = [int](($i / $oObjects.Count) * 100)
+                    }
+                    $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+                    Write-Progress @ProgressParams
+                }
+                $oObject = $oObjects[$i]
+                try {
+                    [void][E911ModuleState]::GetOrCreateNetworkObject($oObject, $false)
+                }
+                catch {
+                    $Id = if ($null -ne $oObject.Bssid) { 
+                        $oObject.Bssid
+                    } 
+                    elseif ($null -ne $oObject.Subnet) {
+                        $oObject.Subnet
+                    }
+                    else { 
+                        "$($oObject.ChassisId)$(if($null -ne $oObject.PortId){";$($oObject.PortId)"})"
+                    }
+                    Write-Warning "${n}: $Id could not be cached: $($_.Exception.Message)"
+                }
             }
         }
         if ($shouldstop) {
             $vsw.Stop()
         }
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Cached $nObjectCount Network Objects"
+        Write-Progress -Activity 'Caching Online Configuration' -Id 0 -Completed
     }
 
     hidden static [string] $_azureMapsApiKey
@@ -1503,6 +1523,7 @@ class E911NetworkObject {
     hidden [bool] $_isOnline
     hidden [bool] $_hasChanged
     hidden [bool] $_isDuplicate
+    hidden [bool] $_commandGenerated
     hidden [string] $_hash
     hidden [string] $_command
     hidden [string] $_locationId
@@ -1513,11 +1534,11 @@ class E911NetworkObject {
         if ([string]::IsNullOrEmpty($newType)) { $newType = 'Unknown' }
         $this.Init([NetworkObjectType]$newType, [NetworkObjectIdentifier]::new($newIdentifier), $Description)
     }
+
     hidden Init([NetworkObjectType]$type, [NetworkObjectIdentifier]$identifier, [string] $Description) {
         $this.Type = $type
         $this.Identifier = $identifier
         $this.Description = $Description
-        # need to add some default description generation?
         if ($null -eq $this.Warning) {
             $this.Warning = [WarningList]::new()
         }
@@ -1526,8 +1547,10 @@ class E911NetworkObject {
         }
         $this.Id = [ItemId]::new()
         $this._isDuplicate = $false
-        $this._hasChanged = $false
+        $this._hasChanged = $this._hasChanged -or $false
+        $this._commandGenerated = $false
     }
+
     hidden Init([PSCustomObject]$obj, [bool] $ShouldValidate) {
         $NetworkObjectType = $obj.NetworkObjectType
         $NetworkObjectIdentifier = $obj.NetworkObjectIdentifier
@@ -1554,15 +1577,11 @@ class E911NetworkObject {
                 }
             }
         }
-        if ([string]::IsNullOrEmpty($obj.Location)) {
-            $this._location = [E911ModuleState]::GetDefaultLocation($obj, $ShouldValidate)
-        }
-        else {
-            $this._location = [E911ModuleState]::GetOrCreateLocation($obj, $ShouldValidate)
-        }
+        $this._location = [E911ModuleState]::GetOrCreateLocation($obj, $ShouldValidate)
         $Desc = if ($null -eq $obj.LocationId) { $obj.NetworkDescription } else { $obj.Description }
         $this.Init($NetworkObjectType, $NetworkObjectIdentifier, $Desc)
     }
+
     hidden Init([PSCustomObject]$obj) {
         if (![string]::IsNullOrEmpty($obj.LocationId)) {
             $this._locationId = $obj.LocationId
@@ -1590,25 +1609,12 @@ class E911NetworkObject {
             $this.Init($obj, $true)
             return
         }
-        if ([string]::IsNullOrEmpty($obj.Location)) {
-            $this._location = [E911ModuleState]::GetDefaultLocation($obj, $false)
-        }
-        else {
-            $this._location = [E911ModuleState]::GetOrCreateLocation($obj, $false)
+        $this._location = [E911ModuleState]::GetOrCreateLocation($obj, $false)
+        if (![string]::IsNullOrEmpty($this._locationId) -and $this._location.Id.ToString() -ne $this._locationId) {
+            # re-home this object to the other matching location id
+            $this._hasChanged = $true
         }
         $this.Init($newType, $newIdentifier, $obj.Description)
-    }
-
-    E911NetworkObject([NetworkObjectType]$newType, [NetworkObjectIdentifier]$newIdentifier, [string] $Description) {
-        $this.Init($newType, $newIdentifier, $Description)
-    }
-
-    E911NetworkObject([string]$newType, [string]$newIdentifier, [string] $Description) {
-        $this.Init($newType, $newIdentifier, $Description)
-    }
-
-    E911NetworkObject() {
-        $this.Init([NetworkObjectType]::Unknown, [NetworkObjectIdentifier]::new([string]::Empty), [string]::Empty)
     }
 
     E911NetworkObject([PSCustomObject]$obj, [bool] $ShouldValidate) {
@@ -1619,35 +1625,25 @@ class E911NetworkObject {
         $this.Init($obj, $ShouldValidate)
     }
 
-    E911NetworkObject([PSCustomObject]$obj) {
-        if (![string]::IsNullOrEmpty($obj.LocationId)) {
-            $this.Init($obj)
-            return
-        }
-        $this.Init($obj, $true)
-    }
-
     [NetworkObjectType] $Type
     [NetworkObjectIdentifier] $Identifier
     [string] $Description
 
     [WarningList] $Warning
 
-    [string] GetCommand([bool] $UseVariable) {
-        if ($this.Type -eq [NetworkObjectType]::Unknown -or $null -eq $this._location) {
+    [string] GetCommand() {
+        if ($this._commandGenerated -or ($this._isOnline -and !$this._hasChanged) -or $this.Type -eq [NetworkObjectType]::Unknown -or $null -eq $this._location) {
             return ''
         }
-        if ([string]::IsNullOrEmpty($this._command) -and $this._hasChanged) {
+        if ([string]::IsNullOrEmpty($this._command)) {
             $sb = [Text.StringBuilder]::new()
-            if ($UseVariable) {
-                if ($this._location._isDefault) {
-                    $LocationId = '{0}.DefaultLocationId' -f $this._location._address.Id.VariableName()
-                }
-                else {
-                    $LocationId = '{0}.LocationId' -f $this._location.Id.VariableName()
-                } 
+            if ($this._location._isDefault -and $this._location._address._hasChanged) {
+                $LocationId = '{0}.DefaultLocationId' -f $this._location._address.Id.VariableName()
             }
-            else <# ($this._location._isOnline) #> {
+            elseif ($this._location._hasChanged) {
+                $LocationId = '{0}.LocationId' -f $this._location.Id.VariableName()
+            }
+            else {
                 $LocationId = '"{0}"' -f $this._location.Id.ToString()
             }
             [void]$sb.AppendFormat('Set-CsOnlineLis{0} -LocationId {1}', $this.Type, $LocationId)
@@ -1655,7 +1651,7 @@ class E911NetworkObject {
                 [void]$sb.AppendFormat(' -Description "{0}"', $this.Description)
             }
             if ($this.Type -eq [NetworkObjectType]::Switch -or $this.Type -eq [NetworkObjectType]::Port) {
-                [void]$sb.AppendFormat(' -ChassisID "{0}"', $this.Identifier.PhysicalAddress)
+                [void]$sb.AppendFormat(' -ChassisId "{0}"', $this.Identifier.PhysicalAddress)
             }
             if ($this.Type -eq [NetworkObjectType]::Port) {
                 [void]$sb.AppendFormat(' -PortId "{0}"', $this.Identifier.PortId)
@@ -1664,7 +1660,7 @@ class E911NetworkObject {
                 [void]$sb.AppendFormat(' -Subnet "{0}"', $this.Identifier.SubnetId.ToString())
             }
             if ($this.Type -eq [NetworkObjectType]::WirelessAccessPoint) {
-                [void]$sb.AppendFormat(' -BSSID "{0}"', $this.Identifier.PhysicalAddress)
+                [void]$sb.AppendFormat(' -Bssid "{0}"', $this.Identifier.PhysicalAddress)
             }
             [void]$sb.Append(' -ErrorAction Stop | Out-Null')
             $this._command = $sb.ToString()
@@ -1700,7 +1696,7 @@ class E911NetworkObject {
             $newIdentifier = $obj.ChassisId
             if ($null -ne $obj.PortId) {
                 $newType = 'Port'
-                $newIdentifier += ";$($obj.PortID)"
+                $newIdentifier += ";$($obj.PortId)"
             }
         }
         if ($null -ne $obj.Bssid) {
@@ -1834,7 +1830,16 @@ class NetworkObjectIdentifier {
             $this.PhysicalAddress = $addr
             return
         }
+        $subnetParts = $NetworkObjectString.Split('/')
         $addr = [System.Net.IPAddress]::Any
+        if ($subnetParts.Count -eq 2) {
+            # this is CIDR, get the subnetid first
+            if ([System.Net.IPAddress]::TryParse($subnetParts[0].Trim(), [ref] $addr)) {
+                # due to limitations in PowerShell int overflow, we must convert to a binary string first, then back to an int
+                $this.SubnetId = [System.Net.IPAddress]::new([Convert]::ToInt32([Convert]::ToString($addr.Address,2),2) -band -bnot(0xffffffff -shl [int]$subnetParts[1]))
+                return
+            }
+        }
         if ([System.Net.IPAddress]::TryParse($NetworkObjectString.Trim(), [ref] $addr)) {
             $this.SubnetId = $addr
             return
@@ -2047,7 +2052,7 @@ function Get-CsE911NeededChange {
     begin {
         $vsw = [Diagnostics.Stopwatch]::StartNew()
         $StartingCount = [E911ModuleState]::MapsQueryCount
-        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
+        Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
         try {
             [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
             # maybe check for token expiration here?
@@ -2056,55 +2061,48 @@ function Get-CsE911NeededChange {
             throw "Run Connect-MicrosoftTeams prior to executing this script!"
         }
         [E911ModuleState]::ForceOnlineCheck = $ForceOnlineCheck
-        # initialize caches
         [E911ModuleState]::InitializeCaches($vsw)
         $Rows = [Collections.Generic.List[E911DataRow]]::new()
-        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Validating Rows..."
+        Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Validating Rows..."
         $i = 0
-        $prevI = $i
         $shouldp = $true
-        $interval = 2
-        $LastSeconds = $vsw.Elapsed.TotalSeconds
+        $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
     }
     process {
         foreach ($lc in $LocationConfiguration) {
             if ($MyInvocation.PipelinePosition -gt 1) {
                 $Total = $Input.Count
             }
-            else  {
+            else {
                 $Total = $LocationConfiguration.Count
             }
-            if (($vsw.Elapsed.TotalSeconds - $LastSeconds) -gt ($interval + 1)) { $shouldp = $true }
-            if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalSeconds - $LastSeconds) -gt $interval)) {
+            if (!$shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval) { $shouldp = $true }
+            if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval)) {
                 if ($i -gt 0) { $shouldp = $false }
                 $ProgressParams = @{
                     Activity = 'Validating Rows'
-                    CurrentOperation = '[{0:F3}s] ({1}{2}) {3}' -f $vsw.Elapsed.TotalSeconds, $i, $(if($Total -gt 1) {"/$Total"}), $lc.RowName()
-                    Id = $MyInvocation.PipelinePosition
+                    Status   = '[{0:F3}s] ({1}{2}) {3}' -f $vsw.Elapsed.TotalSeconds, $i, $(if ($Total -gt 1) { "/$Total" }), $lc.RowName()
+                    Id       = $MyInvocation.PipelinePosition
                 }
-                if ($i -gt 0 -and $Total -gt 1) {
-                    $LastSegment = $vsw.Elapsed.TotalSeconds - $LastSeconds
-                    $Remaining = [int]((($Total - $i) / ($i - $prevI)) * $LastSegment)
-                    $ProgressParams['PercentComplete'] = ($i / $Total * 100) 
-                    $ProgressParams['SecondsRemaining'] = $Remaining
+                if ($Total -gt 1) {
+                    $ProgressParams['PercentComplete'] = [int](($i / $Total) * 100)
                 }
-                $LastSeconds = $vsw.Elapsed.TotalSeconds
-                $prevI = $i
+                $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
                 Write-Progress @ProgressParams
             }
             $i++
-            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] [Row $i] $($lc.RowName()) Validating object..."
+            Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] [Row $i] $($lc.RowName()) Validating object..."
             if (!$lc.HasChanged()) {
                 # no changes to this row since last processing, skip
                 if (!$ForceOnlineCheck) {
-                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] [Row $i] $($lc.RowName()) has not changed - skipping..."
+                    Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] [Row $i] $($lc.RowName()) has not changed - skipping..."
                     [ChangeObject]::new($lc) | Write-Output
                     continue
                 }
-                Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] [Row $i] $($lc.RowName()) has not changed but ForceOnlineCheck is set..."
+                Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] [Row $i] $($lc.RowName()) has not changed but ForceOnlineCheck is set..."
             }
             if ($lc.HasWarnings()) {
-                Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] [Row $i] $($lc.RowName()): validation failed with $($lc.Warning.Count()) issue$(if($lc.Warning.Count() -gt 1) {'s'})!"
+                Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] [Row $i] $($lc.RowName()): validation failed with $($lc.Warning.Count()) issue$(if($lc.Warning.Count() -gt 1) {'s'})!"
                 [ChangeObject]::new($lc) | Write-Output
                 continue
             }
@@ -2114,76 +2112,44 @@ function Get-CsE911NeededChange {
 
     end {
         Write-Progress -Activity 'Validating Rows' -Completed -Id $MyInvocation.PipelinePosition
-        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Processing Rows..."
+        Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Processing Rows..."
         $i = 0
-        $prevI = $i
         $shouldp = $true
-        $interval = 15
-        $LastSeconds = $vsw.Elapsed.TotalSeconds
+        $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
         $Total = $Rows.Count
-        $AddressChanges = [Collections.Generic.List[ItemId]]::new()
-        $GetAddressChanges = [Collections.Generic.List[ItemId]]::new()
-        $LocationChanges = [Collections.Generic.List[ItemId]]::new()
-        foreach ($Row in $Rows) {
-            if (($vsw.Elapsed.TotalSeconds - $LastSeconds) -gt ($interval + 1)) { $shouldp = $true }
-            if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalSeconds - $LastSeconds) -gt $interval)) {
+        while ($i -lt $Rows.Count) {
+            $Row = $Rows[$i]
+            if (!$shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval) { $shouldp = $true }
+            if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval)) {
                 if ($i -gt 0) { $shouldp = $false }
                 $ProgressParams = @{
                     Activity = 'Generating Change Commands'
-                    CurrentOperation = '[{0:F3}s] ({1}{2}) {3}' -f $vsw.Elapsed.TotalSeconds, $i, $(if($Total -gt 1) {"/$Total"}), $lc.RowName()
-                    Id = $MyInvocation.PipelinePosition
+                    Status   = '[{0:F3}s] ({1}{2}) {3}' -f $vsw.Elapsed.TotalSeconds, $i, $(if ($Total -gt 1) { "/$Total" }), $Row.RowName()
+                    Id       = $MyInvocation.PipelinePosition
                 }
-                if ($i -gt 0 -and $Total -gt 1) {
-                    $LastSegment = $vsw.Elapsed.TotalSeconds - $LastSeconds
-                    $Remaining = [int]((($Total - $i) / ($i - $prevI)) * $LastSegment)
-                    $ProgressParams['PercentComplete'] = ($i / $Total * 100) 
-                    $ProgressParams['SecondsRemaining'] = $Remaining
+                if ($Total -gt 1) {
+                    $ProgressParams['PercentComplete'] = [int](($i / $Total) * 100)
                 }
-                $LastSeconds = $vsw.Elapsed.TotalSeconds
-                $prevI = $i
+                $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
                 Write-Progress @ProgressParams
             }
             $i++
             if ($Row.HasWarnings()) {
-                Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] [Row $i] $($Row.RowName()): validation failed with $($Row.Warning.Count()) issue$(if($Row.Warning.Count() -gt 1) {'s'})!"
+                Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] [Row $i] $($Row.RowName()): validation failed with $($Row.Warning.Count()) issue$(if($Row.Warning.Count() -gt 1) {'s'})!"
                 [ChangeObject]::new($Row) | Write-Output
                 continue
             }
             $Commands = $Row.GetChangeCommands($vsw)
             foreach ($Command in $Commands) {
-                if ($Command.CommandType -eq [CommandType]::Address) {
-                    if ($GetAddressChanges.Contains($Command.Id)) {
-                        throw # this should not be possible
-                    }
-                    if ($AddressChanges.Contains($Command.Id) ) {
-                        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Row.RowName()): Address change command already exists, skipping..."
-                        continue
-                    }
-                    [void]$AddressChanges.Add($Command.Id)
-                }
-                if ($Command.CommandType -eq [CommandType]::GetAddress) {
-                    if ($AddressChanges.Contains($Command.Id)) {
-                        throw # this should not be possible
-                    }
-                    if ($GetAddressChanges.Contains($Command.Id) ) {
-                        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Row.RowName()): Get address command already exists, skipping..."
-                        continue
-                    }
-                    [void]$GetAddressChanges.Add($Command.Id)
-                }
-                if ($Command.CommandType -eq [CommandType]::Location) {
-                    if ($LocationChanges.Contains($Command.Id)) {
-                        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Row.RowName()): Location change command already exists, skipping..."
-                        continue
-                    }
-                    [void]$LocationChanges.Add($Command.Id)
+                if ($Command.UpdateType -eq [UpdateType]::Online) {
+                    $Command.CommandObject._commandGenerated = $true
                 }
                 $Command | Write-Output
             }
         }
         $vsw.Stop()
-        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Performed $([E911ModuleState]::MapsQueryCount - $StartingCount) Maps Queries"
-        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
+        Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Performed $([E911ModuleState]::MapsQueryCount - $StartingCount) Maps Queries"
+        Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
         Write-Progress -Activity 'Generating Change Commands' -Completed -Id $MyInvocation.PipelinePosition
     }
 }
@@ -2206,7 +2172,6 @@ function Get-CsE911OnlineConfiguration {
         catch {
             throw "Run Connect-MicrosoftTeams prior to executing this script!"
         }
-        [E911ModuleState]::ForceOnlineCheck = $ForceOnlineCheck
         # initialize caches
         [E911ModuleState]::InitializeCaches($vsw)
 
@@ -2215,43 +2180,106 @@ function Get-CsE911OnlineConfiguration {
     }
 
     process {
+        $i = 0
+        $Total = [E911ModuleState]::OnlineNetworkObjects.Count
+        $shouldp = $true
         foreach ($nObj in [E911ModuleState]::OnlineNetworkObjects.Values) {
+            if (!$shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval) { $shouldp = $true }
+            if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval)) {
+                if ($i -gt 0) { $shouldp = $false }
+                $ProgressParams = @{
+                    Activity = 'Generating Configuration'
+                    Status   = 'From Network Objects: [{0:F3}s] ({1}{2})' -f $vsw.Elapsed.TotalSeconds, $i, $(if ($Total -gt 1) { "/$Total" })
+                    Id       = $MyInvocation.PipelinePosition
+                }
+                if ($Total -gt 1) {
+                    $ProgressParams['PercentComplete'] = [int](($i / $Total) * 100)
+                }
+                $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+                Write-Progress @ProgressParams
+            }
+            $i++
+            if ($null -ne $nObj._location -and !$FoundLocationHashes.Contains($nObj._location.GetHash())) {
+                [void]$FoundLocationHashes.Add($nObj._location.GetHash())
+            }
+            if ($null -ne $nObj._location -and $null -ne $nObj._location._address -and !$FoundAddressHashes.Contains($nObj._location._address.GetHash())) {
+                [void]$FoundAddressHashes.Add($nObj._location._address.GetHash())
+            }
             Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Processing $($nObj.Type):$($nObj.Identifier)"
             if ($null -eq $nObj._location -or $null -eq $nObj._location._address) {
                 Write-Warning "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($nObj.Type):$($nObj.Identifier) is orphaned!"
                 # how should I write this out?
                 continue
             }
-            if ($null -ne $nObj._location -and !$FoundLocationHashes.Contains($nObj._location.GetHash())) {
-                [void]$FoundLocationHashes.Add($nObj._location.GetHash())
-            }
-            if ($null -ne $nObj._location -and $null -ne $nObj._location._location -and !$FoundAddressHashes.Contains($nObj._location._address.GetHash())) {
-                [void]$FoundAddressHashes.Add($nObj._location._address.GetHash())
-            }
+
             $Row = [E911DataRow]::new($nObj)
             $Row.ToString() | ConvertFrom-Json | Write-Output
         }
-        if ($IncludeOrphanedConfiguration) {
-            foreach ($location in [E911ModuleState]::OnlineLocations.Values) {
-                if ($location.GetHash() -in $FoundLocationHashes) {
-                    continue
+        $i = 0
+        $Total = [E911ModuleState]::OnlineLocations.Count
+        $shouldp = $true
+        foreach ($location in [E911ModuleState]::OnlineLocations.Values) {
+            if (!$shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval) { $shouldp = $true }
+            if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval)) {
+                if ($i -gt 0) { $shouldp = $false }
+                $ProgressParams = @{
+                    Activity = 'Generating Configuration'
+                    Status   = 'From Locations: [{0:F3}s] ({1}{2})' -f $vsw.Elapsed.TotalSeconds, $i, $(if ($Total -gt 1) { "/$Total" })
+                    Id       = $MyInvocation.PipelinePosition
                 }
-                if ($null -eq $location._address -and !$IncludeOrphanedConfiguration) {
-                    Write-Warning "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($location.Location) is orphaned!"
-                    continue
+                if ($Total -gt 1) {
+                    $ProgressParams['PercentComplete'] = [int](($i / $Total) * 100)
                 }
-                # how should I handle these locations?
+                $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+                Write-Progress @ProgressParams
             }
-            foreach ($address in [E911ModuleState]::OnlineAddresses.Values) {
-                if ($address.GetHash() -in $FoundAddressHashes) {
-                    continue
-                }
-                # how should I handle these addresses?
+            $i++
+            if ($FoundLocationHashes.Contains($location.GetHash())) {
+                continue
             }
+            [void]$FoundLocationHashes.Add($location.GetHash())
+            if ($null -eq $location._address -and !$IncludeOrphanedConfiguration) {
+                Write-Warning "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($location.Location) is orphaned!"
+                continue
+            }
+            if (!$FoundAddressHashes.Contains($location._address.GetHash())) {
+                [void]$FoundAddressHashes.Add($location._address.GetHash())
+            }
+            if ([string]::IsNullOrEmpty($location.Location)) {
+                # don't output the default location if there is nothing associated
+                continue
+            }
+            $Row = [E911DataRow]::new($location)
+            $Row.ToString() | ConvertFrom-Json | Write-Output
         }
-
+        $i = 0
+        $Total = [E911ModuleState]::OnlineAddresses.Count
+        $shouldp = $true
+        foreach ($address in [E911ModuleState]::OnlineAddresses.Values) {
+            if (!$shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval) { $shouldp = $true }
+            if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval)) {
+                if ($i -gt 0) { $shouldp = $false }
+                $ProgressParams = @{
+                    Activity = 'Generating Configuration'
+                    Status   = 'From Addresses: [{0:F3}s] ({1}{2})' -f $vsw.Elapsed.TotalSeconds, $i, $(if ($Total -gt 1) { "/$Total" })
+                    Id       = $MyInvocation.PipelinePosition
+                }
+                if ($Total -gt 1) {
+                    $ProgressParams['PercentComplete'] = [int](($i / $Total) * 100)
+                }
+                $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+                Write-Progress @ProgressParams
+            }
+            $i++
+            if ($FoundAddressHashes.Contains($address.GetHash())) {
+                continue
+            }
+            [void]$FoundAddressHashes.Add($address.GetHash())
+            $Row = [E911DataRow]::new($address)
+            $Row.ToString() | ConvertFrom-Json | Write-Output
+        }
+        Write-Progress -Activity 'Generating Configuration' -Id $MyInvocation.PipelinePosition -Completed
     }
-
     end {
         $vsw.Stop()
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
@@ -2272,13 +2300,13 @@ function Set-CsE911OnlineChange {
         [switch]
         $ValidateOnly,
 
-        [Parameter(Mandatory = $false, ParameterSetName = 'Validate')]
+        [Parameter(Mandatory = $false)]
         [string]
         $ExecutionPlanPath
     )
     begin {
         $vsw = [Diagnostics.Stopwatch]::StartNew()
-        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
+        Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
         try {
             [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
             # maybe check for token expiration here?
@@ -2293,62 +2321,66 @@ function Set-CsE911OnlineChange {
             }
             if ((Test-Path -Path $ExecutionPlanPath -PathType Container -ErrorAction SilentlyContinue)) {
                 # get new file name:
-                $FileName = 'E911ExecutionPlan_{0:yyyyMMdd_HHmmss}.txt' -f [DateTime]::Now
+                $ExecutionName = if ($ValidateOnly) { 'ExecutionPlan' } else { 'ExecutedCommands' }
+                $Date = '{0:yyyy-MM-dd HH:mm:ss}' -f [DateTime]::Now
+                $FileName = 'E911{0}_{1:yyyyMMdd_HHmmss}.txt' -f $ExecutionName, [DateTime]::Now
                 $ExecutionPlanPath = Join-Path -Path $ExecutionPlanPath -ChildPath $FileName
             }
             try {
-               Set-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# *******************************************************************************'
-               Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# Teams E911 Automation generated execution plan'
-               Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# The following commands are what the workflow would execute in a live scenario'
-               Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# These must be executed from a valid MicrosoftTeams PowerShell session'
-               Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# These commands must be executed in-order in the same PowerShell session'
-               Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# *******************************************************************************'
-               Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value ''
+                Set-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# *******************************************************************************'
+                if ($ValidateOnly) {
+                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# Teams E911 Automation generated execution plan'
+                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# The following commands are what the workflow would execute in a live scenario'
+                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# These must be executed from a valid MicrosoftTeams PowerShell session'
+                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# These commands must be executed in-order in the same PowerShell session'
+                }
+                else {
+                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# Teams E911 Automation executed commands'
+                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value "# The following commands are what workflow executed at $Date"
+                }
+                Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# *******************************************************************************'
+                Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value ''
             }
             catch {
+                Write-Warning "file write failed: $($_.Exception.Message)"
                 $ExecutionPlanPath = ''
             }
             if ([string]::IsNullOrEmpty($ExecutionPlanPath)) {
                 Write-Warning "$($ExecutionPlanPath) is not a writeable path, execution plan will not be saved!"
             }
         }
-        $PendingChanges = [Collections.Generic.Dictionary[int,Collections.Generic.List[ChangeObject]]]::new()
+        $PendingChanges = [Collections.Generic.Dictionary[int, Collections.Generic.List[ChangeObject]]]::new()
         $i = 0
-        $prevI = $i
         $shouldp = $true
         $changeCount = 0
-        $LastSeconds = $vsw.Elapsed.TotalSeconds
-        $interval = 5
+        $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+        Write-Information "Processing changes with 0 dependencies"
     }
     process {
         foreach ($Change in $PendingChange) {
             if ($MyInvocation.PipelinePosition -gt 1) {
                 $Total = $Input.Count
             }
-            else  {
+            else {
                 $Total = $PendingChange.Count
             }
-            if (($vsw.Elapsed.TotalSeconds - $LastSeconds) -gt ($interval + 1)) { $shouldp = $true }
-            if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalSeconds - $LastSeconds) -gt $interval)) {
-                if ($i -gt 0) { $shouldp = $false }
+            if (!$shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval) { $shouldp = $true }
+            if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval)) {
+                $shouldp = $false
                 $ProgressParams = @{
                     Activity = 'Processing changes'
-                    CurrentOperation = '[{0:F3}s] ({1}{2}) {3} Change: {4}' -f $vsw.Elapsed.TotalSeconds, $i, $(if($Total -gt 1) {"/$Total"}), $Change.UpdateType, $Change.Id
-                    Id = $MyInvocation.PipelinePosition
+                    Status   = '[{0:F3}s] ({1}{2}) {3} Change: {4}' -f $vsw.Elapsed.TotalSeconds, $i, $(if ($Total -gt 1) { "/$Total" }), $Change.UpdateType, $(if ($Change.UpdateType -eq [UpdateType]::Online) { $Change.ProcessInfo } else { $Change.Id })
+                    Id       = $MyInvocation.PipelinePosition
                 }
-                if ($i -gt 0 -and $Total -gt 1) {
-                    $LastSegment = $vsw.Elapsed.TotalSeconds - $LastSeconds
-                    $Remaining = [int]((($Total - $i) / ($i - $prevI)) * $LastSegment)
-                    $ProgressParams['PercentComplete'] = ($i / $Total) * 100 
-                    $ProgressParams['SecondsRemaining'] = $Remaining
+                if ($Total -gt 1) {
+                    $ProgressParams['PercentComplete'] = [int](($i / $Total) * 100)
                 }
-                $LastSeconds = $vsw.Elapsed.TotalSeconds
-                $prevI = $i
+                $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
                 Write-Progress @ProgressParams
             }
             $i++
             if ($null -ne $Change.CommandObject -and $Change.CommandObject.HasWarnings()) {
-                Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) has warnings, skipping further processing"
+                Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) has warnings, skipping further processing"
                 if ($Change.UpdateType -eq [UpdateType]::Source) {
                     $Change.DependsOn.Clear()
                     $Change.CommandObject | ConvertFrom-Json | Write-Output
@@ -2357,17 +2389,17 @@ function Set-CsE911OnlineChange {
             }
             if ($Change.DependsOn.Count() -eq 0) {
                 if ($Change.UpdateType -eq [UpdateType]::Source) {
-                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) is a source change with no needed changes"
+                    Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) is a source change with no needed changes"
                     $Change.CommandObject | ConvertFrom-Json | Write-Output
                     continue
                 }
                 $changeCount++
                 try {
-                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)"
+                    Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)"
                     if (!$ValidateOnly) {
                         Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop | Out-Null
                     }
-                    if ($ValidateOnly -and $null -ne $ExecutionPlanPath) {
+                    if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
                         $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath
                     }
                     [E911ModuleState]::ShouldClear = $true
@@ -2375,6 +2407,10 @@ function Set-CsE911OnlineChange {
                 catch {
                     $Change.CommandObject.Warning.Add([WarningType]::OnlineChangeError, "Command: { $($Change.ProcessInfo) } ErrorMessage: $($_.Exception.Message)")
                     Write-Warning "Command: { $($Change.ProcessInfo) } ErrorMessage: $($_.Exception.Message)"
+                    if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
+                        "# COMMAND FAILED! ERROR:" | Add-Content -Path $ExecutionPlanPath
+                        "# $($_.Exception.Message -replace "`n","`n# ")" | Add-Content -Path $ExecutionPlanPath
+                    }
                 }
                 continue
             }
@@ -2385,40 +2421,29 @@ function Set-CsE911OnlineChange {
         }
     }
     end {
-        if ($PendingChanges.Keys.Count -eq 0) {
-            $vsw.Stop()
-            Write-Progress -Activity 'Processing changes' -Completed -Id $MyInvocation.PipelinePosition
-            Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
-            return
-        }
         $shouldp = $true
-        $LastSeconds = $vsw.Elapsed.TotalSeconds
-        $prevI = $i
-        $Total = $PendingChange.Count # $i + $PendingChanges.Values.ForEach({$_.Where({$_.UpdateType -eq [UpdateType]::Online})}).Count
+        $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+        $Total = $PendingChange.Count
         foreach ($DependencyCount in $PendingChanges.Keys) {
+            Write-Information "Processing changes with $($DependencyCount) dependencies"
             foreach ($Change in $PendingChanges[$DependencyCount]) {
-                if (($vsw.Elapsed.TotalSeconds - $LastSeconds) -gt ($interval + 1)) { $shouldp = $true }
-                if ($shouldp -and ($vsw.Elapsed.TotalSeconds - $LastSeconds) -gt $interval) {
+                if (!$shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval) { $shouldp = $true }
+                if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval)) {
                     $shouldp = $false
                     $ProgressParams = @{
-                        Activity = "Processing changes"
-                        CurrentOperation = '[{0:F3}s] ({1}{2}) {3} Change: {4}' -f $vsw.Elapsed.TotalSeconds, $i, $(if($Total -gt 1) {"/$Total"}), $Change.UpdateType, $Change.Id
-                        Id = $MyInvocation.PipelinePosition
+                        Activity = 'Processing changes'
+                        Status   = '[{0:F3}s] ({1}{2}) {3} Change: {4}' -f $vsw.Elapsed.TotalSeconds, $i, $(if ($Total -gt 1) { "/$Total" }), $Change.UpdateType, $(if ($Change.UpdateType -eq [UpdateType]::Online) { $Change.ProcessInfo } else { $Change.Id })
+                        Id       = $MyInvocation.PipelinePosition
                     }
-                    if ($i -gt 0 -and $Total -gt 1) {
-                        $SecondsPer = $i / $LastSeconds
-                        # $LastSegment = $vsw.Elapsed.TotalSeconds - $LastSeconds
-                        $Remaining = ($Total - $i) * $SecondsPer
-                        $ProgressParams['PercentComplete'] = ($i / $Total) * 100 
-                        $ProgressParams['SecondsRemaining'] = $Remaining
+                    if ($Total -gt 1) {
+                        $ProgressParams['PercentComplete'] = [int](($i / $Total) * 100)
                     }
-                    $LastSeconds = $vsw.Elapsed.TotalSeconds
-                    $prevI = $i
+                    $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
                     Write-Progress @ProgressParams
                 }
                 $i++
                 if ($null -ne $Change.CommandObject -and $Change.CommandObject.HasWarnings()) {
-                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) has warnings, skipping further processing"
+                    Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) has warnings, skipping further processing"
                     if ($Change.UpdateType -eq [UpdateType]::Source) {
                         $Change.DependsOn.Clear()
                         $Change.CommandObject | ConvertFrom-Json | Write-Output
@@ -2426,17 +2451,17 @@ function Set-CsE911OnlineChange {
                     continue
                 }
                 if ($Change.UpdateType -eq [UpdateType]::Source) {
-                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) is a source change with no needed changes"
+                    Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) is a source change with no needed changes"
                     $Change.CommandObject | ConvertFrom-Json | Write-Output
                     continue
                 }
                 $changeCount++
                 try {
-                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)"
+                    Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)"
                     if (!$ValidateOnly) {
                         Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop | Out-Null
                     }
-                    if ($ValidateOnly -and $null -ne $ExecutionPlanPath) {
+                    if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
                         $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath
                     }
                     [E911ModuleState]::ShouldClear = $true
@@ -2444,12 +2469,16 @@ function Set-CsE911OnlineChange {
                 catch {
                     $Change.CommandObject.Warning.Add([WarningType]::OnlineChangeError, "Command: { $($Change.ProcessInfo) } ErrorMessage: $($_.Exception.Message)")
                     Write-Warning "Command: { $($Change.ProcessInfo) } ErrorMessage: $($_.Exception.Message)"
+                    if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
+                        "# COMMAND FAILED! ERROR:" | Add-Content -Path $ExecutionPlanPath
+                        "# $($_.Exception.Message -replace "`n","`n# ")" | Add-Content -Path $ExecutionPlanPath
+                    }
                 }
             }
         }
         $vsw.Stop()
         Write-Progress -Activity 'Processing changes' -Completed -Id $MyInvocation.PipelinePosition
-        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
+        Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
     }
 }
 
@@ -2466,3 +2495,7 @@ Export-ModuleMember -Function Get-CsE911NeededChange
 Export-ModuleMember -Function Get-CsE911OnlineConfiguration
 Export-ModuleMember -Function Set-CsE911OnlineChange
 Export-ModuleMember -Function Reset-CsE911Cache
+
+if ([string]::IsNullOrEmpty($env:AZUREMAPS_API_KEY)) {
+    Write-Warning "Could not find AZUREMAPS_API_KEY, be sure to set env var before executing"
+}

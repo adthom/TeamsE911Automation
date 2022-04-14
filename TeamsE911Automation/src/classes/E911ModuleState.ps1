@@ -124,8 +124,6 @@ class E911ModuleState {
 
     hidden static [System.Collections.Generic.Dictionary[string, E911Address]] $OnlineAddresses = [System.Collections.Generic.Dictionary[string, E911Address]]::new()
     hidden static [System.Collections.Generic.Dictionary[string, E911Address]] $Addresses = [System.Collections.Generic.Dictionary[string, E911Address]]::new()
-    hidden static [System.Collections.Generic.Dictionary[string, E911Location]] $OnlineDefaultLocations = [System.Collections.Generic.Dictionary[string, E911Location]]::new()
-    hidden static [System.Collections.Generic.Dictionary[string, E911Location]] $DefaultLocations = [System.Collections.Generic.Dictionary[string, E911Location]]::new()
     hidden static [System.Collections.Generic.Dictionary[string, E911Location]] $OnlineLocations = [System.Collections.Generic.Dictionary[string, E911Location]]::new()
     hidden static [System.Collections.Generic.Dictionary[string, E911Location]] $Locations = [System.Collections.Generic.Dictionary[string, E911Location]]::new()
     hidden static [System.Collections.Generic.Dictionary[string, E911NetworkObject]] $OnlineNetworkObjects = [System.Collections.Generic.Dictionary[string, E911NetworkObject]]::new()
@@ -152,6 +150,10 @@ class E911ModuleState {
         if ($null -eq $Online -and [E911ModuleState]::OnlineAddresses.ContainsKey($Hash)) {
             $Online = [E911ModuleState]::OnlineAddresses[$Hash]
             if ([E911Address]::Equals($Online, $obj)) {
+                if (![string]::IsNullOrEmpty($obj.CivicAddressId)) {
+                    # found a duplicate online address, lets add this address id here so we can link this up later
+                    [E911ModuleState]::OnlineAddresses.Add($obj.CivicAddressId.ToLower(), $Online)
+                }
                 return $Online
             }
             $OnlineChanged = $true
@@ -172,7 +174,7 @@ class E911ModuleState {
             }
             return $Test
         }
-        if ((!$_.isOnline -and $ShouldValidate) -or $OnlineChanged) {
+        if ((!$New._isOnline -and $ShouldValidate) -or $OnlineChanged) {
             $New._hasChanged = $true
             [E911ModuleState]::Addresses.Add($New.GetHash(), $New)
         }
@@ -186,53 +188,6 @@ class E911ModuleState {
         }
         return $New
     }
-    static [E911Location] GetDefaultLocation([PSCustomObject] $obj, [bool]$ShouldValidate) {
-        $OnlineChanged = $false
-        $Online = $null
-        if (![string]::IsNullOrEmpty($obj.LocationId) -and [E911ModuleState]::OnlineDefaultLocations.ContainsKey($obj.LocationId.ToLower())) {
-            $Online = [E911ModuleState]::OnlineDefaultLocations[$obj.LocationId.ToLower()]
-            if ([E911Address]::Equals($Online, $obj)) {
-                return $Online
-            }
-            $OnlineChanged = $true
-        }
-        if (!$OnlineChanged -and ![string]::IsNullOrEmpty($obj.DefaultLocationId) -and [E911ModuleState]::OnlineDefaultLocations.ContainsKey($obj.DefaultLocationId.ToLower())) {
-            $Online = [E911ModuleState]::OnlineDefaultLocations[$obj.DefaultLocationId.ToLower()]
-            if ([E911Address]::Equals($Online, $obj)) {
-                return $Online
-            }
-            $OnlineChanged = $true
-        }
-        $Hash = [E911Address]::GetHash($obj)
-        if ([E911ModuleState]::DefaultLocations.ContainsKey($Hash)) {
-            $Test = [E911ModuleState]::DefaultLocations[$Hash]
-            if ([E911Address]::Equals($Test, $obj)) {
-                return $Test
-            }
-        }
-        if ($null -eq $Online -and [E911ModuleState]::OnlineDefaultLocations.ContainsKey($Hash)) {
-            $Online = [E911ModuleState]::OnlineDefaultLocations[$Hash]
-            if ([E911Address]::Equals($Online, $obj) -and $Online.Elin -eq $obj.Elin) {
-                return $Online
-            }
-            $OnlineChanged = $true
-        }
-        $New = [E911Location]::new($obj, $ShouldValidate, $true)
-        if ((!$_.isOnline -and $ShouldValidate)) {
-            $New._hasChanged = $true
-            [E911ModuleState]::DefaultLocations.Add($Hash, $New)
-        }
-        if ($OnlineChanged) {
-            $New._hasChanged = $true
-            [E911ModuleState]::OnlineDefaultLocations[$Hash] = $New
-            [E911ModuleState]::OnlineDefaultLocations[$New.Id.ToString().ToLower()] = $New
-        }
-        if ($New._isOnline -and !$OnlineChanged) {  # initial adding of online default location
-            [E911ModuleState]::OnlineDefaultLocations.Add($Hash, $New)
-            [E911ModuleState]::OnlineDefaultLocations.Add($New.Id.ToString().ToLower(), $New)
-        }
-        return $New
-    }
     static [E911Location] GetOrCreateLocation([PSCustomObject] $obj, [bool]$ShouldValidate) {
         $OnlineChanged = $false
         $Online = $null
@@ -241,6 +196,15 @@ class E911ModuleState {
             if (([string]::IsNullOrEmpty($obj.Location) -and [string]::IsNullOrEmpty($obj.CountryOrRegion)) -or [E911Location]::Equals($Online, $obj)) {
                 return $Online
             }
+            # not sure we should ever get here...
+            $OnlineChanged = $true
+        }
+        if (!$OnlineChanged -and ![string]::IsNullOrEmpty($obj.DefaultLocationId) -and [E911ModuleState]::OnlineLocations.ContainsKey($obj.DefaultLocationId.ToLower())) {
+            $Online = [E911ModuleState]::OnlineLocations[$obj.DefaultLocationId.ToLower()]
+            if ([E911Location]::Equals($Online, $obj)) {
+                return $Online
+            }
+            # not sure we should ever get here...
             $OnlineChanged = $true
         }
         $Hash = [E911Location]::GetHash($obj)
@@ -250,12 +214,16 @@ class E911ModuleState {
         if ($null -eq $Online -and [E911ModuleState]::OnlineLocations.ContainsKey($Hash)) {
             $Online = [E911ModuleState]::OnlineLocations[$Hash]
             if ([E911Location]::Equals($Online, $obj)) {
+                if (![string]::IsNullOrEmpty($obj.LocationId)) {
+                    # found a duplicate online location, lets add this location id here so we can link this up later
+                    [E911ModuleState]::OnlineLocations.Add($obj.LocationId.ToLower(), $Online)
+                }
                 return $Online
             }
             $OnlineChanged = $true
         }
         $New = [E911Location]::new($obj, $ShouldValidate)
-        if ((!$_.isOnline -and $ShouldValidate) -or $OnlineChanged) {
+        if ((!$New._isOnline -and $ShouldValidate) -or $OnlineChanged) {
             $New._hasChanged = $true
             [E911ModuleState]::Locations.Add($New.GetHash(), $New)
         }
@@ -294,7 +262,7 @@ class E911ModuleState {
         if ($dup) {
             $New.Warning.Add([WarningType]::DuplicateNetworkObject, "$($New.Type):$($New.Identifier) exists in other rows")
         }
-        if (!$dup -and $New.Type -ne [NetworkObjectType]::Unknown -and ((!$_.isOnline -and $ShouldValidate) -or $OnlineChanged)) {
+        if (!$dup -and $New.Type -ne [NetworkObjectType]::Unknown -and ((!$New._isOnline -and $ShouldValidate) -or $OnlineChanged)) {
             $New._hasChanged = $true
             [E911ModuleState]::NetworkObjects.Add($New.GetHash(), $New)
         }
@@ -325,8 +293,6 @@ class E911ModuleState {
         $AddrCount = [E911ModuleState]::Addresses.Count
         $OnlineLocCount = [E911ModuleState]::OnlineLocations.Count
         $LocCount = [E911ModuleState]::Locations.Count
-        $OnlineDefLocCount = [E911ModuleState]::OnlineDefaultLocations.Count
-        $DefLocCount = [E911ModuleState]::DefaultLocations.Count
         $OnlineNobjCount = [E911ModuleState]::OnlineNetworkObjects.Count
         $NobjCount = [E911ModuleState]::NetworkObjects.Count
         [E911ModuleState]::OnlineAddresses.Clear()
@@ -337,10 +303,6 @@ class E911ModuleState {
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($OnlineLocCount - [E911ModuleState]::OnlineLocations.Count) Online Locations Removed"
         [E911ModuleState]::Locations.Clear()
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($LocCount - [E911ModuleState]::Locations.Count) Locations Removed"
-        [E911ModuleState]::OnlineDefaultLocations.Clear()
-        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($OnlineDefLocCount - [E911ModuleState]::OnlineDefaultLocations.Count) Online Default Locations Removed"
-        [E911ModuleState]::DefaultLocations.Clear()
-        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($DefLocCount - [E911ModuleState]::DefaultLocations.Count) Default Locations Removed"
         [E911ModuleState]::OnlineNetworkObjects.Clear()
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($OnlineNobjCount - [E911ModuleState]::OnlineNetworkObjects.Count) Online Network Objects Removed"
         [E911ModuleState]::NetworkObjects.Clear()
@@ -368,6 +330,8 @@ class E911ModuleState {
         return $CommandName
     }
 
+    hidden static [int] $Interval = 200
+
     static [void] InitializeCaches([Diagnostics.Stopwatch] $vsw) {
         $shouldstop = $false
         if ($null -eq $vsw) {
@@ -375,34 +339,115 @@ class E911ModuleState {
             $shouldstop = $true
         }
         $CommandName = [E911ModuleState]::GetCommandName()
-        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Populating Caches..."
         if ([E911ModuleState]::ShouldClear) {
             [E911ModuleState]::FlushCaches($vsw)
         }
+        if (([E911ModuleState]::Addresses.Count + [E911ModuleState]::Locations.Count + [E911ModuleState]::NetworkObjects.Count) -gt 0) {
+            if ($shouldstop) {
+                $vsw.Stop()
+            }
+            return
+        }
+        Write-Progress -Activity 'Caching Online Configuration' -Id 0
+        Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Populating Caches..."
+        Write-Progress -Activity 'Caching Online Configuration' -Id 0 -Status 'Getting Addresses'
         $oAddresses = Get-CsOnlineLisCivicAddress
-        foreach ($oAddress in $oAddresses) {
-            [void][E911ModuleState]::GetOrCreateAddress($oAddress, $false)
-            [void][E911ModuleState]::GetDefaultLocation($oAddress, $false)
+        $shouldp = $true
+        $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+        for ($i = 0; $i -lt $oAddresses.Count; $i++) {
+            if (!$shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval) { $shouldp = $true }
+            if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval)) {
+                if ($i -gt 0) { $shouldp = $false }
+                $ProgressParams = @{
+                    Activity        = 'Caching Online Configuration'
+                    Status          = 'Caching Addresses: [{0:F3}s] ({1}/{2})' -f $vsw.Elapsed.TotalSeconds, $i, $oAddresses.Count
+                    Id              = 0
+                    PercentComplete = [int](($i / $oAddresses.Count) * 100)
+                }
+                $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+                Write-Progress @ProgressParams
+            }
+            $oAddress = $oAddresses[$i]
+            try {
+                [void][E911ModuleState]::GetOrCreateAddress($oAddress, $false)
+            }
+            catch {
+                Write-Warning "Address: $($oAddress.CivicAddressId) could not be cached: $($_.Exception.Message)"
+            }
         }
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Cached $($oAddresses.Count) Civic Addresses"
+        Write-Progress -Activity 'Caching Online Configuration' -Id 0 -Status 'Getting Locations'
         $oLocations = Get-CsOnlineLisLocation
-        foreach ($oLocation in $oLocations) {
-            [void][E911ModuleState]::GetOrCreateLocation($oLocation, $false)
+        $shouldp = $true
+        $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+        for ($i = 0; $i -lt $oLocations.Count; $i++) {
+            if (!$shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval) { $shouldp = $true }
+            if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval)) {
+                if ($i -gt 0) { $shouldp = $false }
+                $ProgressParams = @{
+                    Activity        = 'Caching Online Configuration'
+                    Status          = 'Caching Locations: [{0:F3}s] ({1}/{2})' -f $vsw.Elapsed.TotalSeconds, $i, $oLocations.Count
+                    Id              = 0
+                    PercentComplete = [int](($i / $oLocations.Count) * 100)
+                }
+                $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+                Write-Progress @ProgressParams
+            }
+            $oLocation = $oLocations[$i]
+            try {
+                [void][E911ModuleState]::GetOrCreateLocation($oLocation, $false)
+            }
+            catch {
+                Write-Warning "Location: $($oLocation.LocationId) could not be cached: $($_.Exception.Message)"
+            }
         }
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Cached $($oLocations.Count) Locations"
         $nObjectCount = 0
         foreach ($n in [Enum]::GetNames([NetworkObjectType])) {
             if ($n -eq 'Unknown') { continue }
+            $name = $n
+            if ($name -eq 'Switch') { $name += 'e' }
+            Write-Progress -Activity 'Caching Online Configuration' -Id 0 -Status "Getting ${name}s" -PercentComplete 0
             $oObjects = Invoke-Command -NoNewScope ([ScriptBlock]::Create(('Get-CsOnlineLis{0}' -f $n)))
             $nObjectCount += $oObjects.Count
-            foreach ($oObject in $oObjects) {
-                [void][E911ModuleState]::GetOrCreateNetworkObject($oObject, $false)
+            $shouldp = $true
+            $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+            for ($i = 0; $i -lt $oObjects.Count; $i++) {
+                if (!$shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval) { $shouldp = $true }
+                if ($i -eq 0 -or ($shouldp -and ($vsw.Elapsed.TotalMilliseconds - $LastMilliseconds) -ge [E911ModuleState]::Interval)) {
+                    if ($i -gt 0) { $shouldp = $false }
+                    $ProgressParams = @{
+                        Activity        = 'Caching Online Configuration'
+                        Status          = 'Caching {0}s: [{1:F3}s] ({2}/{3})' -f $name, $vsw.Elapsed.TotalSeconds, $i, $oObjects.Count
+                        Id              = 0
+                        PercentComplete = [int](($i / $oObjects.Count) * 100)
+                    }
+                    $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
+                    Write-Progress @ProgressParams
+                }
+                $oObject = $oObjects[$i]
+                try {
+                    [void][E911ModuleState]::GetOrCreateNetworkObject($oObject, $false)
+                }
+                catch {
+                    $Id = if ($null -ne $oObject.Bssid) { 
+                        $oObject.Bssid
+                    } 
+                    elseif ($null -ne $oObject.Subnet) {
+                        $oObject.Subnet
+                    }
+                    else { 
+                        "$($oObject.ChassisId)$(if($null -ne $oObject.PortId){";$($oObject.PortId)"})"
+                    }
+                    Write-Warning "${n}: $Id could not be cached: $($_.Exception.Message)"
+                }
             }
         }
         if ($shouldstop) {
             $vsw.Stop()
         }
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Cached $nObjectCount Network Objects"
+        Write-Progress -Activity 'Caching Online Configuration' -Id 0 -Completed
     }
 
     hidden static [string] $_azureMapsApiKey

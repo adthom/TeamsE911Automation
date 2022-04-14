@@ -10,7 +10,7 @@ Chicago,,Chicago,Floor 2,200 East Randolph Street,Chicago,IL,60601,US,,,,,Subnet
 Chicago,,Chicago,Floor 3,200 East Randolph Street,Chicago,IL,60601,US,,,,,Subnet,10.0.23.0,true,,
 Chicago,,Chicago,Floor 4,200 East Randolph Street,Chicago,IL,60601,US,,,,,Subnet,10.0.24.0,false,,
 Chicago,,Chicago,Floor 5,200 East Randolph Street,Chicago,IL,60601,US,,,,,Subnet,10.0.21.0,,,
-Chicago,,Chicago,Floor 5,200 East Randolph Street,Chicago,IL,60601,US,,,,,Port,10-da-43-02-f9-ff;g7/2,,,
+Chicago,,Chicago,Floor 5,200 East Randolph Street,Chicago,IL,60601,US,,,,,Port,10da4302f9ff;g7/2,,,
 Cincinnati,,Cincinnati,GS108T,4445 Lake Forest Drive,Blue Ash,OH,45242,US,,,,Switch 1,Switch,10-da-43-02-f9-ef,,,
 Cincinnati,,Cincinnati,GS108T,4445 Lake Forest Drive,Blue Ash,OH,45242,US,,,,Switch 2,Switch,10-da-43-02-f9-ee,,,
 Cincinnati,,Cincinnati,GS108T Port 1,4445 Lake Forest Drive,Blue Ash,OH,45242,US,,,,Port 1,Port,10-da-43-02-f9-ef;g1,,,

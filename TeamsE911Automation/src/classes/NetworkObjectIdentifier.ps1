@@ -18,7 +18,16 @@ class NetworkObjectIdentifier {
             $this.PhysicalAddress = $addr
             return
         }
+        $subnetParts = $NetworkObjectString.Split('/')
         $addr = [System.Net.IPAddress]::Any
+        if ($subnetParts.Count -eq 2) {
+            # this is CIDR, get the subnetid first
+            if ([System.Net.IPAddress]::TryParse($subnetParts[0].Trim(), [ref] $addr)) {
+                # due to limitations in PowerShell int overflow, we must convert to a binary string first, then back to an int
+                $this.SubnetId = [System.Net.IPAddress]::new([Convert]::ToInt32([Convert]::ToString($addr.Address,2),2) -band -bnot(0xffffffff -shl [int]$subnetParts[1]))
+                return
+            }
+        }
         if ([System.Net.IPAddress]::TryParse($NetworkObjectString.Trim(), [ref] $addr)) {
             $this.SubnetId = $addr
             return
