@@ -106,6 +106,8 @@ function Invoke-CsE911BulkOnlineChange {
             $Done | Receive-Job -ErrorAction SilentlyContinue
             $Done | Remove-Job -ErrorAction SilentlyContinue
             $newStatus = getcurrent
+            Write-Host ""
+            Write-Host "Status Update: $([DateTime]::Now)"
             $es = $newStatus.Elapsed.TotalSeconds - $currentStatus.Elapsed.TotalSeconds
             if (($addresses = $newStatus.Addresses - $currentStatus.Addresses) -gt 0) {
                 Write-Host "$addresses Addresses added ($([Math]::Round($addresses/$es,2))/s)"
@@ -119,8 +121,11 @@ function Invoke-CsE911BulkOnlineChange {
             if (($Subnets = $newStatus.Subnets - $currentStatus.Subnets) -gt 0) {
                 Write-Host "$Subnets Subnets added ($([Math]::Round($Subnets/$es,2))/s)"
             }
+            if (($Switches = $newStatus.Switches - $currentStatus.Switches) -gt 0) {
+                Write-Host "$Switches Switches added ($([Math]::Round($Switches/$es,2))/s)"
+            }
             if (($Ports = $newStatus.Ports - $currentStatus.Ports) -gt 0) {
-                Write-Host "$Ports Addresses added ($([Math]::Round($Ports/$es,2))/s)"
+                Write-Host "$Ports Ports added ($([Math]::Round($Ports/$es,2))/s)"
             }
             $currentStatus = $newStatus
             $Jobs = $Jobs | Where-Object { $_ -notin $Done }
