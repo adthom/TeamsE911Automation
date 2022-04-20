@@ -180,7 +180,9 @@ class E911DataRow {
         $d = [DependsOn]::new()
         if ($GetCommands) {
             $ac = $this._networkObject._location._address.GetCommand()
+            $addressAdded = $false
             if (![string]::IsNullOrEmpty($ac)) {
+                $addressAdded = $true
                 Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($this.RowName()): Address new or changed!"
                 $l.Add([ChangeObject]@{
                         UpdateType    = [UpdateType]::Online
@@ -191,11 +193,13 @@ class E911DataRow {
                     })
                 
             }
-            if ($this._networkObject._location._address._commandGenerated) {
+            if ($addressAdded -or $this._networkObject._location._address._commandGenerated) {
                 $d.Add($this._networkObject._location._address.Id)
             }
             $lc = $this._networkObject._location.GetCommand()
+            $locationAdded = $false
             if (![string]::IsNullOrEmpty($lc)) {
+                $locationAdded = $true
                 Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($this.RowName()): Location new or changed!"
                 $l.Add([ChangeObject]@{
                         UpdateType    = [UpdateType]::Online
@@ -205,11 +209,13 @@ class E911DataRow {
                         CommandObject = $this._networkObject._location
                     })
             }
-            if ($this._networkObject._location._commandGenerated) {
+            if ($locationAdded -or $this._networkObject._location._commandGenerated) {
                 $d.Add($this._networkObject._location.Id)
             }
             $nc = $this._networkObject.GetCommand()
+            $networkAdded = $false
             if (![string]::IsNullOrEmpty($nc)) {
+                $networkAdded = $false
                 Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] $($this.RowName()): Network Object new or changed!"
                 $l.Add([ChangeObject]@{
                         UpdateType    = [UpdateType]::Online
@@ -219,10 +225,9 @@ class E911DataRow {
                         CommandObject = $this._networkObject
                     })
             }
-            if ($this._networkObject._commandGenerated) {
+            if ($networkAdded -or $this._networkObject._commandGenerated) {
                 $d.Add($this._networkObject.Id)
             }
-            
         }
         $l.Add([ChangeObject]::new($this, $d))
         return $l

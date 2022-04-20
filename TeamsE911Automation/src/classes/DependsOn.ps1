@@ -13,6 +13,13 @@ class DependsOn {
             $this.Add([ItemId]::new($Part.Trim()))
         }
     }
+    DependsOn([DependsOn] $DependsOn) {
+        $this._items = [System.Collections.Generic.List[ItemId]]::new()
+        if ($DependsOn.Count() -eq 0) {
+            return
+        }
+        $this.AddRange($DependsOn._items)
+    }
     [void] Clear() {
         $this._items.Clear()
     }

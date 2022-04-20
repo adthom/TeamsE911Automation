@@ -63,11 +63,13 @@ function Remove-CsE911Configuration {
     foreach ($Location in $Locations) {
         $addr = $Addresses.Where({ $_.CivicAddressId -eq $Location.CivicAddressId -and $Location.LocationId -ne $_.DefaultLocationId })
         if ($null -eq $addr -or $addr.Count -eq 0) { continue }
+        Write-Verbose "Removing Location:$($Location.LocationId)-$($Location.Location)"
         Remove-CsOnlineLisLocation -LocationId $Location.LocationId | Out-Null
         $i++
     }
     foreach ($Address in $Addresses) {
         if ($Address.NumberOfVoiceUsers -gt 0 -or $Address.NumberOfTelephoneNumbers -gt 0 ) { continue }
+        Write-Verbose "Removing Address:$($Address.CivicAddressId)-$($Address.HouseNumber) $($Address.StreetName)"
         Remove-CsOnlineLisCivicAddress -CivicAddressId $Address.CivicAddressId | Out-Null
         $j++
     }
