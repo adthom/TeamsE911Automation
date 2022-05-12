@@ -1,5 +1,5 @@
 class E911DataRow {
-    hidden static [object[]] $Properties = @('CompanyName','CompanyTaxId','Description','Address','Location','City','StateOrProvince','PostalCode','CountryOrRegion','Latitude','Longitude','Elin','NetworkDescription','NetworkObjectType','NetworkObjectIdentifier','SkipMapsLookup')
+    hidden static [object[]] $Properties = @('CompanyName', 'CompanyTaxId', 'Description', 'Address', 'Location', 'City', 'StateOrProvince', 'PostalCode', 'CountryOrRegion', 'Latitude', 'Longitude', 'Elin', 'NetworkDescription', 'NetworkObjectType', 'NetworkObjectIdentifier', 'SkipMapsLookup')
     # Hidden Properties
     hidden [PSCustomObject] $_originalRow
     hidden [string] $_string
@@ -68,7 +68,6 @@ class E911DataRow {
     E911DataRow([E911NetworkObject] $nObj) {
         $this.Warning = [WarningList]::new($nObj.Warning)
         $this._networkObject = $nObj
-        $this.SkipMapsLookup = $nObj._isOnline -and $this.Longitude -ne 0.0 -and $this.Latitude -ne 0.0
 
         $this._AddCompanyName()
         $this._AddCompanyTaxId()
@@ -86,6 +85,8 @@ class E911DataRow {
         $this._AddNetworkObjectType()
         $this._AddNetworkObjectIdentifier()
         $this._AddEntryHash()
+
+        $this.SkipMapsLookup = $nObj._isOnline -and $this.Longitude -ne 0.0 -and $this.Latitude -ne 0.0
 
         $this._originalRow = [PSCustomObject]@{
             CompanyName             = "$($this.CompanyName)"
@@ -236,7 +237,7 @@ class E911DataRow {
     [string] ToHashString() {
         if ([string]::IsNullOrEmpty($this._hashString)) {
             $SelectParams = @{
-                Property        = [E911DataRow]::Properties
+                Property = [E911DataRow]::Properties
             }
             $this._hashString = $this._originalRow | Select-Object @SelectParams | ConvertTo-Json -Compress
         }
@@ -244,10 +245,10 @@ class E911DataRow {
     }
     [string] ToString() {
         $SelectParams = @{
-            Property        = [E911DataRow]::Properties + @(@{ Name = 'EntryHash'; Expression = { $this.EntryHash } })
-        }
-        if ($this.HasWarnings()) {
-            $SelectParams['Property'] += @(@{ Name = 'Warning'; Expression = { $this.Warning.ToString() } })
+            Property = [E911DataRow]::Properties + @(
+                @{ Name = 'EntryHash'; Expression = { $this.EntryHash } }, 
+                @{ Name = 'Warning'; Expression = { if ($this.HasWarnings()) { $this.Warning.ToString() } else { '' } } }
+                )
         }
         $this._string = $this._originalRow | Select-Object @SelectParams | ConvertTo-Json -Compress
         $this._lastWarnCount = $this.Warning.Count()

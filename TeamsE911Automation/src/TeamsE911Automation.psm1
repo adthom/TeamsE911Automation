@@ -468,7 +468,7 @@ class E911Address {
 
 # (imported from .\classes\E911DataRow.ps1)
 class E911DataRow {
-    hidden static [object[]] $Properties = @('CompanyName','CompanyTaxId','Description','Address','Location','City','StateOrProvince','PostalCode','CountryOrRegion','Latitude','Longitude','Elin','NetworkDescription','NetworkObjectType','NetworkObjectIdentifier','SkipMapsLookup')
+    hidden static [object[]] $Properties = @('CompanyName', 'CompanyTaxId', 'Description', 'Address', 'Location', 'City', 'StateOrProvince', 'PostalCode', 'CountryOrRegion', 'Latitude', 'Longitude', 'Elin', 'NetworkDescription', 'NetworkObjectType', 'NetworkObjectIdentifier', 'SkipMapsLookup')
     # Hidden Properties
     hidden [PSCustomObject] $_originalRow
     hidden [string] $_string
@@ -705,7 +705,7 @@ class E911DataRow {
     [string] ToHashString() {
         if ([string]::IsNullOrEmpty($this._hashString)) {
             $SelectParams = @{
-                Property        = [E911DataRow]::Properties
+                Property = [E911DataRow]::Properties
             }
             $this._hashString = $this._originalRow | Select-Object @SelectParams | ConvertTo-Json -Compress
         }
@@ -713,10 +713,10 @@ class E911DataRow {
     }
     [string] ToString() {
         $SelectParams = @{
-            Property        = [E911DataRow]::Properties + @(@{ Name = 'EntryHash'; Expression = { $this.EntryHash } })
-        }
-        if ($this.HasWarnings()) {
-            $SelectParams['Property'] += @(@{ Name = 'Warning'; Expression = { $this.Warning.ToString() } })
+            Property = [E911DataRow]::Properties + @(
+                @{ Name = 'EntryHash'; Expression = { $this.EntryHash } }, 
+                @{ Name = 'Warning'; Expression = { if ($this.HasWarnings()) { $this.Warning.ToString() } else { '' } } }
+                )
         }
         $this._string = $this._originalRow | Select-Object @SelectParams | ConvertTo-Json -Compress
         $this._lastWarnCount = $this.Warning.Count()
@@ -1271,8 +1271,13 @@ class E911ModuleState {
             [E911ModuleState]::OnlineLocations[$New.Id.ToString().ToLower()] = $New
         }
         if ($New._isOnline -and !$OnlineChanged) {
-            [E911ModuleState]::OnlineLocations.Add($New.GetHash(), $New)
-            [E911ModuleState]::OnlineLocations.Add($New.Id.ToString().ToLower(), $New)
+            if (![E911ModuleState]::OnlineLocations.ContainsKey($New.GetHash())) {
+                [E911ModuleState]::OnlineLocations.Add($New.GetHash(), $New)
+                [E911ModuleState]::OnlineLocations.Add($New.Id.ToString().ToLower(), $New)
+            }
+            else {
+                [E911ModuleState]::OnlineLocations.Add($New.Id.ToString().ToLower(), [E911ModuleState]::OnlineLocations[$New.GetHash()])
+            }
         }
         return $New
     }
@@ -1292,6 +1297,9 @@ class E911ModuleState {
         if ([E911ModuleState]::OnlineNetworkObjects.ContainsKey($Hash)) {
             $Online = [E911ModuleState]::OnlineNetworkObjects[$Hash]
             if ([E911NetworkObject]::Equals($Online, $obj)) {
+                if ($dup) {
+                    $Online.Warning.Add([WarningType]::DuplicateNetworkObject, "$($Online.Type):$($Online.Identifier) exists in other rows")
+                }
                 return $Online
             }
             $OnlineChanged = $true
@@ -1303,13 +1311,22 @@ class E911ModuleState {
         if (!$dup -and $New.Type -ne [NetworkObjectType]::Unknown -and ((!$New._isOnline -and $ShouldValidate) -or $OnlineChanged)) {
             $New._hasChanged = $true
             [E911ModuleState]::NetworkObjects.Add($New.GetHash(), $New)
+            if ($Hash -ne $New.GetHash()) {
+                [E911ModuleState]::NetworkObjects.Add($Hash, $New)
+            }
         }
         if ($OnlineChanged) {
             $New._hasChanged = $true
             [E911ModuleState]::OnlineNetworkObjects[$New.GetHash()] = $New
+            if ($Hash -ne $New.GetHash()) {
+                [E911ModuleState]::OnlineNetworkObjects[$Hash] = $New
+            }
         }
         if ($New._isOnline -and !$OnlineChanged) {
             [E911ModuleState]::OnlineNetworkObjects.Add($New.GetHash(), $New)
+            if ($Hash -ne $New.GetHash()) {
+                [E911ModuleState]::OnlineNetworkObjects.Add($Hash, $New)
+            }
         }
         return $New
     }
@@ -1407,10 +1424,11 @@ class E911ModuleState {
             }
             $oAddress = $oAddresses[$i]
             try {
+                Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Caching Address: $($oAddress.CivicAddressId)..."
                 [void][E911ModuleState]::GetOrCreateAddress($oAddress, $false)
             }
             catch {
-                Write-Warning "Address: $($oAddress.CivicAddressId) could not be cached: $($_.Exception.Message)"
+                Write-Warning "Address: $($oAddress.CivicAddressId) could not be cached: $($_.Exception.Message) Line: '$($_.InvocationInfo.Line)'"
             }
         }
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Cached $($oAddresses.Count) Civic Addresses"
@@ -1433,10 +1451,11 @@ class E911ModuleState {
             }
             $oLocation = $oLocations[$i]
             try {
+                Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Caching Location: $($oLocation.LocationId)..."
                 [void][E911ModuleState]::GetOrCreateLocation($oLocation, $false)
             }
             catch {
-                Write-Warning "Location: $($oLocation.LocationId) could not be cached: $($_.Exception.Message)"
+                Write-Warning "Location: $($oLocation.LocationId) could not be cached: $($_.Exception.Message) Line: '$($_.InvocationInfo.Line)'"
             }
         }
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Cached $($oLocations.Count) Locations"
@@ -1464,20 +1483,21 @@ class E911ModuleState {
                     Write-Progress @ProgressParams
                 }
                 $oObject = $oObjects[$i]
+                $Id = if ($null -ne $oObject.Bssid) { 
+                    $oObject.Bssid
+                } 
+                elseif ($null -ne $oObject.Subnet) {
+                    $oObject.Subnet
+                }
+                else { 
+                    "$($oObject.ChassisId)$(if($null -ne $oObject.PortId){";$($oObject.PortId)"})"
+                }
                 try {
+                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Caching ${n}: $Id..."
                     [void][E911ModuleState]::GetOrCreateNetworkObject($oObject, $false)
                 }
                 catch {
-                    $Id = if ($null -ne $oObject.Bssid) { 
-                        $oObject.Bssid
-                    } 
-                    elseif ($null -ne $oObject.Subnet) {
-                        $oObject.Subnet
-                    }
-                    else { 
-                        "$($oObject.ChassisId)$(if($null -ne $oObject.PortId){";$($oObject.PortId)"})"
-                    }
-                    Write-Warning "${n}: $Id could not be cached: $($_.Exception.Message)"
+                    Write-Warning "${n}: $Id could not be cached: $($_.Exception.Message) Line: '$($_.InvocationInfo.Line)'"
                 }
             }
         }
@@ -2063,7 +2083,7 @@ function Get-CsE911NeededChange {
 
     begin {
         $vsw = [Diagnostics.Stopwatch]::StartNew()
-        $StartingCount = [E911ModuleState]::MapsQueryCount
+        $StartingCount = [Math]::Max(0, [E911ModuleState]::MapsQueryCount)
         Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
         try {
             [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
@@ -2073,6 +2093,7 @@ function Get-CsE911NeededChange {
             throw "Run Connect-MicrosoftTeams prior to executing this script!"
         }
         [E911ModuleState]::ForceOnlineCheck = $ForceOnlineCheck
+        [E911ModuleState]::ShouldClear = $true
         [E911ModuleState]::InitializeCaches($vsw)
         $Rows = [Collections.Generic.List[E911DataRow]]::new()
         Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Validating Rows..."
@@ -2185,6 +2206,7 @@ function Get-CsE911OnlineConfiguration {
             throw "Run Connect-MicrosoftTeams prior to executing this script!"
         }
         # initialize caches
+        [E911ModuleState]::ShouldClear = $true
         [E911ModuleState]::InitializeCaches($vsw)
 
         $FoundLocationHashes = [Collections.Generic.List[string]]::new()
@@ -2218,7 +2240,7 @@ function Get-CsE911OnlineConfiguration {
                 [void]$FoundAddressHashes.Add($nObj._location._address.GetHash())
             }
             Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Processing $($nObj.Type):$($nObj.Identifier)"
-            if ($null -eq $nObj._location -or $null -eq $nObj._location._address) {
+            if ($null -eq $nObj._location -or $null -eq $nObj._location._address -or ($nObj._isOnline -and !($nObj._location._isOnline -and $nObj._location._address._isOnline))) {
                 Write-Warning "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($nObj.Type):$($nObj.Identifier) is orphaned!"
                 # how should I write this out?
                 continue
@@ -2361,6 +2383,7 @@ function Set-CsE911OnlineChange {
                 Write-Warning "$($ExecutionPlanPath) is not a writeable path, execution plan will not be saved!"
             }
         }
+        $ProcessedChanges = [Collections.Generic.List[ItemId]]::new()
         $PendingChanges = [Collections.Generic.Dictionary[int, Collections.Generic.List[ChangeObject]]]::new()
         $i = 0
         $shouldp = $true
@@ -2414,6 +2437,7 @@ function Set-CsE911OnlineChange {
                     if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
                         $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath
                     }
+                    $ProcessedChanges.Add($Change.Id)
                     [E911ModuleState]::ShouldClear = $true
                 }
                 catch {
@@ -2462,6 +2486,23 @@ function Set-CsE911OnlineChange {
                     }
                     continue
                 }
+
+                $NoPending = $true
+                foreach ($d in $Change.DependsOn.GetEnumerator()) {
+                    if ($ProcessedChanges.Contains($d)) {
+                        continue
+                    }
+                    $NoPending = $false
+                    break
+                }
+                if (!$NoPending) {
+                    Write-Warning "Unexpected Dependency Exception! $($Change.CommandObject.Id.ToString()): $($Change.DependsOn.ToString())"
+                    $Change.CommandObject.Warning.Add([WarningType]::GeneralFailure, "Unexpected Dependency Exception! $($Change.DependsOn.ToString())")
+                    if ($Change.UpdateType -eq [UpdateType]::Source) {
+                        $Change.CommandObject | ConvertFrom-Json | Write-Output
+                    }
+                    continue
+                }
                 if ($Change.UpdateType -eq [UpdateType]::Source) {
                     Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) is a source change with no needed changes"
                     $Change.CommandObject | ConvertFrom-Json | Write-Output
@@ -2476,6 +2517,7 @@ function Set-CsE911OnlineChange {
                     if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
                         $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath
                     }
+                    $ProcessedChanges.Add($Change.Id)
                     [E911ModuleState]::ShouldClear = $true
                 }
                 catch {

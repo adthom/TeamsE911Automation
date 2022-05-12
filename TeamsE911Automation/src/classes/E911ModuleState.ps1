@@ -233,8 +233,13 @@ class E911ModuleState {
             [E911ModuleState]::OnlineLocations[$New.Id.ToString().ToLower()] = $New
         }
         if ($New._isOnline -and !$OnlineChanged) {
-            [E911ModuleState]::OnlineLocations.Add($New.GetHash(), $New)
-            [E911ModuleState]::OnlineLocations.Add($New.Id.ToString().ToLower(), $New)
+            if (![E911ModuleState]::OnlineLocations.ContainsKey($New.GetHash())) {
+                [E911ModuleState]::OnlineLocations.Add($New.GetHash(), $New)
+                [E911ModuleState]::OnlineLocations.Add($New.Id.ToString().ToLower(), $New)
+            }
+            else {
+                [E911ModuleState]::OnlineLocations.Add($New.Id.ToString().ToLower(), [E911ModuleState]::OnlineLocations[$New.GetHash()])
+            }
         }
         return $New
     }
@@ -254,6 +259,9 @@ class E911ModuleState {
         if ([E911ModuleState]::OnlineNetworkObjects.ContainsKey($Hash)) {
             $Online = [E911ModuleState]::OnlineNetworkObjects[$Hash]
             if ([E911NetworkObject]::Equals($Online, $obj)) {
+                if ($dup) {
+                    $Online.Warning.Add([WarningType]::DuplicateNetworkObject, "$($Online.Type):$($Online.Identifier) exists in other rows")
+                }
                 return $Online
             }
             $OnlineChanged = $true
@@ -265,13 +273,22 @@ class E911ModuleState {
         if (!$dup -and $New.Type -ne [NetworkObjectType]::Unknown -and ((!$New._isOnline -and $ShouldValidate) -or $OnlineChanged)) {
             $New._hasChanged = $true
             [E911ModuleState]::NetworkObjects.Add($New.GetHash(), $New)
+            if ($Hash -ne $New.GetHash()) {
+                [E911ModuleState]::NetworkObjects.Add($Hash, $New)
+            }
         }
         if ($OnlineChanged) {
             $New._hasChanged = $true
             [E911ModuleState]::OnlineNetworkObjects[$New.GetHash()] = $New
+            if ($Hash -ne $New.GetHash()) {
+                [E911ModuleState]::OnlineNetworkObjects[$Hash] = $New
+            }
         }
         if ($New._isOnline -and !$OnlineChanged) {
             [E911ModuleState]::OnlineNetworkObjects.Add($New.GetHash(), $New)
+            if ($Hash -ne $New.GetHash()) {
+                [E911ModuleState]::OnlineNetworkObjects.Add($Hash, $New)
+            }
         }
         return $New
     }
@@ -369,10 +386,11 @@ class E911ModuleState {
             }
             $oAddress = $oAddresses[$i]
             try {
+                Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Caching Address: $($oAddress.CivicAddressId)..."
                 [void][E911ModuleState]::GetOrCreateAddress($oAddress, $false)
             }
             catch {
-                Write-Warning "Address: $($oAddress.CivicAddressId) could not be cached: $($_.Exception.Message)"
+                Write-Warning "Address: $($oAddress.CivicAddressId) could not be cached: $($_.Exception.Message) Line: '$($_.InvocationInfo.Line)'"
             }
         }
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Cached $($oAddresses.Count) Civic Addresses"
@@ -395,10 +413,11 @@ class E911ModuleState {
             }
             $oLocation = $oLocations[$i]
             try {
+                Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Caching Location: $($oLocation.LocationId)..."
                 [void][E911ModuleState]::GetOrCreateLocation($oLocation, $false)
             }
             catch {
-                Write-Warning "Location: $($oLocation.LocationId) could not be cached: $($_.Exception.Message)"
+                Write-Warning "Location: $($oLocation.LocationId) could not be cached: $($_.Exception.Message) Line: '$($_.InvocationInfo.Line)'"
             }
         }
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Cached $($oLocations.Count) Locations"
@@ -426,20 +445,21 @@ class E911ModuleState {
                     Write-Progress @ProgressParams
                 }
                 $oObject = $oObjects[$i]
+                $Id = if ($null -ne $oObject.Bssid) { 
+                    $oObject.Bssid
+                } 
+                elseif ($null -ne $oObject.Subnet) {
+                    $oObject.Subnet
+                }
+                else { 
+                    "$($oObject.ChassisId)$(if($null -ne $oObject.PortId){";$($oObject.PortId)"})"
+                }
                 try {
+                    Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$CommandName] Caching ${n}: $Id..."
                     [void][E911ModuleState]::GetOrCreateNetworkObject($oObject, $false)
                 }
                 catch {
-                    $Id = if ($null -ne $oObject.Bssid) { 
-                        $oObject.Bssid
-                    } 
-                    elseif ($null -ne $oObject.Subnet) {
-                        $oObject.Subnet
-                    }
-                    else { 
-                        "$($oObject.ChassisId)$(if($null -ne $oObject.PortId){";$($oObject.PortId)"})"
-                    }
-                    Write-Warning "${n}: $Id could not be cached: $($_.Exception.Message)"
+                    Write-Warning "${n}: $Id could not be cached: $($_.Exception.Message) Line: '$($_.InvocationInfo.Line)'"
                 }
             }
         }

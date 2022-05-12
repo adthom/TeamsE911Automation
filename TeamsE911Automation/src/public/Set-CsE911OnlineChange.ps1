@@ -60,6 +60,7 @@ function Set-CsE911OnlineChange {
                 Write-Warning "$($ExecutionPlanPath) is not a writeable path, execution plan will not be saved!"
             }
         }
+        $ProcessedChanges = [Collections.Generic.List[ItemId]]::new()
         $PendingChanges = [Collections.Generic.Dictionary[int, Collections.Generic.List[ChangeObject]]]::new()
         $i = 0
         $shouldp = $true
@@ -113,6 +114,7 @@ function Set-CsE911OnlineChange {
                     if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
                         $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath
                     }
+                    $ProcessedChanges.Add($Change.Id)
                     [E911ModuleState]::ShouldClear = $true
                 }
                 catch {
@@ -161,6 +163,23 @@ function Set-CsE911OnlineChange {
                     }
                     continue
                 }
+
+                $NoPending = $true
+                foreach ($d in $Change.DependsOn.GetEnumerator()) {
+                    if ($ProcessedChanges.Contains($d)) {
+                        continue
+                    }
+                    $NoPending = $false
+                    break
+                }
+                if (!$NoPending) {
+                    Write-Warning "Unexpected Dependency Exception! $($Change.CommandObject.Id.ToString()): $($Change.DependsOn.ToString())"
+                    $Change.CommandObject.Warning.Add([WarningType]::GeneralFailure, "Unexpected Dependency Exception! $($Change.DependsOn.ToString())")
+                    if ($Change.UpdateType -eq [UpdateType]::Source) {
+                        $Change.CommandObject | ConvertFrom-Json | Write-Output
+                    }
+                    continue
+                }
                 if ($Change.UpdateType -eq [UpdateType]::Source) {
                     Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.Id) is a source change with no needed changes"
                     $Change.CommandObject | ConvertFrom-Json | Write-Output
@@ -175,6 +194,7 @@ function Set-CsE911OnlineChange {
                     if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
                         $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath
                     }
+                    $ProcessedChanges.Add($Change.Id)
                     [E911ModuleState]::ShouldClear = $true
                 }
                 catch {

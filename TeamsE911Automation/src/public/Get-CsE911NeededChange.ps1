@@ -13,7 +13,7 @@ function Get-CsE911NeededChange {
 
     begin {
         $vsw = [Diagnostics.Stopwatch]::StartNew()
-        $StartingCount = [E911ModuleState]::MapsQueryCount
+        $StartingCount = [Math]::Max(0, [E911ModuleState]::MapsQueryCount)
         Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
         try {
             [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
@@ -23,6 +23,7 @@ function Get-CsE911NeededChange {
             throw "Run Connect-MicrosoftTeams prior to executing this script!"
         }
         [E911ModuleState]::ForceOnlineCheck = $ForceOnlineCheck
+        [E911ModuleState]::ShouldClear = $true
         [E911ModuleState]::InitializeCaches($vsw)
         $Rows = [Collections.Generic.List[E911DataRow]]::new()
         Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Validating Rows..."
@@ -115,3 +116,4 @@ function Get-CsE911NeededChange {
         Write-Progress -Activity 'Generating Change Commands' -Completed -Id $MyInvocation.PipelinePosition
     }
 }
+

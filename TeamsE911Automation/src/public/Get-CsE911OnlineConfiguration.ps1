@@ -16,6 +16,7 @@ function Get-CsE911OnlineConfiguration {
             throw "Run Connect-MicrosoftTeams prior to executing this script!"
         }
         # initialize caches
+        [E911ModuleState]::ShouldClear = $true
         [E911ModuleState]::InitializeCaches($vsw)
 
         $FoundLocationHashes = [Collections.Generic.List[string]]::new()
@@ -49,10 +50,12 @@ function Get-CsE911OnlineConfiguration {
                 [void]$FoundAddressHashes.Add($nObj._location._address.GetHash())
             }
             Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Processing $($nObj.Type):$($nObj.Identifier)"
-            if ($null -eq $nObj._location -or $null -eq $nObj._location._address) {
+            if ($null -eq $nObj._location -or $null -eq $nObj._location._address -or ($nObj._isOnline -and !($nObj._location._isOnline -and $nObj._location._address._isOnline))) {
                 Write-Warning "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($nObj.Type):$($nObj.Identifier) is orphaned!"
-                # how should I write this out?
-                continue
+                if (!$IncludeOrphanedConfiguration) {
+                    continue
+                }
+                $nObj.Warning.Add([WarningType]::GeneralFailure, 'Orphaned Network Object')
             }
 
             $Row = [E911DataRow]::new($nObj)
@@ -81,7 +84,7 @@ function Get-CsE911OnlineConfiguration {
                 continue
             }
             [void]$FoundLocationHashes.Add($location.GetHash())
-            if ($null -eq $location._address -and !$IncludeOrphanedConfiguration) {
+            if ($null -eq $location._address -or ($location._isOnline -and !$location._address._isOnline) -and !$IncludeOrphanedConfiguration) {
                 Write-Warning "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($location.Location) is orphaned!"
                 continue
             }
@@ -128,3 +131,4 @@ function Get-CsE911OnlineConfiguration {
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
     }
 }
+
