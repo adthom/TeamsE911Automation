@@ -185,6 +185,9 @@ class E911Address {
             $addr = $obj.Address
             $this._isOnline = $false
         }
+        if ([string]::IsNullOrEmpty($obj.CountryOrRegion) -and $this._isOnline) {
+            $this._isOnline = $false
+        }
         $this.SkipMapsLookup = $this._isOnline -and $obj.Latitude -ne 0.0 -and $obj.Longitude -ne 0.0 # don't validate an online object that already has geocodes
         if ($ShouldValidate) {
             if ([string]::IsNullOrEmpty($addr)) {
@@ -442,9 +445,9 @@ class E911Address {
     }
 
     hidden static [string] _convertOnlineAddress([PSCustomObject]$Online) {
-        if ($Online -is [E911Address] -or $Online -is [E911Location]) {
-            return ''
-        }
+        # if ($Online -is [E911Address] -or $Online -is [E911Location]) {
+            # return ''
+        # }
         $AddressKeys = @(
             "HouseNumber",
             "HouseNumberSuffix",
@@ -453,13 +456,17 @@ class E911Address {
             "StreetSuffix",
             "PostDirectional"
         )
+
         $addressSb = [Text.StringBuilder]::new()
         foreach ($prop in $AddressKeys) {
-            if (![string]::IsNullOrEmpty($Online.$prop)) {
+            if (![string]::IsNullOrEmpty(($Online.$prop))) {
+                if (($Online.$prop) -isnot [string]) {
+                    continue
+                }
                 if ($addressSb.Length -gt 0) {
                     $addressSb.Append(' ') | Out-Null
                 }
-                $addressSb.Append($Online.$prop.Trim()) | Out-Null
+                $addressSb.Append(($Online.$prop).Trim()) | Out-Null
             }
         }
         return $addressSb.ToString()
@@ -537,7 +544,6 @@ class E911DataRow {
     E911DataRow([E911NetworkObject] $nObj) {
         $this.Warning = [WarningList]::new($nObj.Warning)
         $this._networkObject = $nObj
-        $this.SkipMapsLookup = $nObj._isOnline -and $this.Longitude -ne 0.0 -and $this.Latitude -ne 0.0
 
         $this._AddCompanyName()
         $this._AddCompanyTaxId()
@@ -555,6 +561,8 @@ class E911DataRow {
         $this._AddNetworkObjectType()
         $this._AddNetworkObjectIdentifier()
         $this._AddEntryHash()
+
+        $this.SkipMapsLookup = $nObj._isOnline -and $this.Longitude -ne 0.0 -and $this.Latitude -ne 0.0
 
         $this._originalRow = [PSCustomObject]@{
             CompanyName             = "$($this.CompanyName)"
@@ -824,7 +832,7 @@ class E911Location {
     hidden [E911Address] $_address
 
     E911Location ([PSCustomObject] $obj, [bool] $ShouldValidate) {
-        if (![string]::IsNullOrEmpty($obj.LocationId)) {
+        if (![string]::IsNullOrEmpty($obj.LocationId) -and ![string]::IsNullOrEmpty($obj.CountryOrRegion)) {
             # made via online location
             $this._isOnline = $true
             $this.Id = [ItemId]::new($obj.LocationId)
@@ -1038,6 +1046,95 @@ class E911Location {
 # (imported from .\classes\E911ModuleState.ps1)
 class E911ModuleState {
     static [int] $MapsQueryCount = 0
+
+    static [bool] TestIsAddressMatch( [string] $ReferenceAddress, [string] $DifferenceAddress ) {
+        $numberwords = @("", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen")
+        $positionwords = @{ "first" = "1st"; "second" = "2nd"; "third" = "3rd"; "fourth" = "4th"; "fifth" = "5th"; "sixth" = "6th"; "seventh" = "7th"; "eighth" = "8th"; "ninth" = "9th"; "tenth" = "10th" }
+        $ReferenceAddress = $ReferenceAddress.ToLowerInvariant()
+        $DifferenceAddress = $DifferenceAddress.ToLowerInvariant()
+        if ($ReferenceAddress -eq $DifferenceAddress) { return $true }
+    
+        $DifferenceAddressTokens = [Collections.Generic.List[string]]::new()
+        $ReferenceAddressTokens = [Collections.Generic.List[string]]::new()
+        $ReferenceMatched = [Collections.Generic.List[bool]]::new()
+        $DifferenceMatched = [Collections.Generic.List[bool]]::new()
+        $ReferenceAddressTokens.AddRange(([string[]]($ReferenceAddress -split '\b').Where({ $_ -match '\w' })))
+        $DifferenceAddressTokens.AddRange(([string[]]($DifferenceAddress -split '\b').Where({ $_ -match '\w' })))
+    
+        for ($i = 0; $i -lt $ReferenceAddressTokens.Count; $i++) {
+            if ($ReferenceAddressTokens[$i] -match '^[ns]?[ew]?$') {
+                $ReferenceAddressTokens[$i] = $ReferenceAddressTokens[$i] -replace '^n', 'north'
+                $ReferenceAddressTokens[$i] = $ReferenceAddressTokens[$i] -replace '^s', 'south'
+                $ReferenceAddressTokens[$i] = $ReferenceAddressTokens[$i] -replace 'e$', 'east'
+                $ReferenceAddressTokens[$i] = $ReferenceAddressTokens[$i] -replace 'w$', 'west'
+            }
+            if ($ReferenceAddressTokens[$i].Length -gt 5 -and ($ReferenceAddressTokens[$i].StartsWith('north') -or $ReferenceAddressTokens[$i].StartsWith('south'))) {
+                # split northeast/southeast/northwest/southwest into 2 fields
+                $Parts = $ReferenceAddressTokens[$i] -split '(?<=h)'
+                $ReferenceAddressTokens[$i] = $Parts[0]
+                $ReferenceAddressTokens.Insert(($i + 1), $Parts[1])
+            }
+            if (($Index = $numberwords.IndexOf($ReferenceAddressTokens[$i])) -gt 0) {
+                $ReferenceAddressTokens[$i] = $Index
+            }
+            if ($positionwords.ContainsKey($ReferenceAddressTokens[$i])) {
+                $ReferenceAddressTokens[$i] = $positionwords[($ReferenceAddressTokens[$i])]
+            }
+        }
+        for ($i = 0; $i -lt $DifferenceAddressTokens.Count; $i++) {
+            if ($DifferenceAddressTokens[$i] -match '^[ns]?[ew]?$') {
+                $DifferenceAddressTokens[$i] = $DifferenceAddressTokens[$i] -replace '^n', 'north'
+                $DifferenceAddressTokens[$i] = $DifferenceAddressTokens[$i] -replace '^s', 'south'
+                $DifferenceAddressTokens[$i] = $DifferenceAddressTokens[$i] -replace 'e$', 'east'
+                $DifferenceAddressTokens[$i] = $DifferenceAddressTokens[$i] -replace 'w$', 'west'
+            }
+            if ($DifferenceAddressTokens[$i].Length -gt 5 -and ($DifferenceAddressTokens[$i].StartsWith('north') -or $DifferenceAddressTokens[$i].StartsWith('south'))) {
+                # split northeast/southeast/northwest/southwest into 2 fields
+                $Parts = $DifferenceAddressTokens[$i] -split '(?<=h)'
+                $DifferenceAddressTokens[$i] = $Parts[0]
+                $DifferenceAddressTokens.Insert(($i + 1), $Parts[1])
+            }
+            if (($Index = $numberwords.IndexOf($DifferenceAddressTokens[$i])) -gt 0) {
+                $DifferenceAddressTokens[$i] = $Index
+            }
+            if ($positionwords.ContainsKey($DifferenceAddressTokens[$i])) {
+                $DifferenceAddressTokens[$i] = $positionwords[($DifferenceAddressTokens[$i])]
+            }
+        }
+        for ($i = 0; $i -lt $ReferenceAddressTokens.Count; $i++) {
+            $ReferenceMatched.Add($false)
+        }
+        for ($i = 0; $i -lt $DifferenceAddressTokens.Count; $i++) {
+            $DifferenceMatched.Add($false)
+        }
+        # simple match first
+        for ($i = 0; $i -lt $ReferenceAddressTokens.Count; $i++) {
+            if ($ReferenceMatched[$i]) { continue } # already matched, skip
+            if (($Index = $DifferenceAddressTokens.IndexOf($ReferenceAddressTokens[$i])) -gt -1 -and !$DifferenceMatched[$Index]) {
+                $ReferenceMatched[$i] = $true
+                $DifferenceMatched[$Index] = $true
+                continue
+            }
+        }
+        $RefUnmatched = $ReferenceMatched.Where({ !$_ }).Count
+        $DiffUnmatched = $DifferenceMatched.Where({ !$_ }).Count
+        if ($RefUnmatched -eq 0 -and $DiffUnmatched -eq 0) {
+            return $true
+        }
+        if ($ReferenceAddressTokens.Count -eq $DifferenceAddressTokens.Count -and $RefUnmatched -eq 1 -and $DiffUnmatched -eq 1) {
+            $RefIndex = $ReferenceMatched.IndexOf($false)
+            $DiffIndex = $DifferenceMatched.IndexOf($false)
+            # very basic abbreviation matching, only works for abbreviations which start with the same letters (st != street but rd != road) 
+            # should improve logic later
+            if ($ReferenceAddressTokens[$RefIndex].StartsWith($DifferenceAddressTokens[$DiffIndex]) -or $DifferenceAddressTokens[$DiffIndex].StartsWith($ReferenceAddressTokens[$RefIndex])) {
+                $ReferenceMatched[$RefIndex] = $true
+                $DifferenceMatched[$DiffIndex] = $true
+                return $true
+            }
+        }
+        return $false
+    }
+
     static [void] ValidateAddress([E911Address] $Address) {
         if ($null -eq [E911ModuleState]::MapsKey()) {
             $Address.Warning.Add([WarningType]::MapsValidation, 'No Maps API Key Found')
@@ -1098,14 +1195,15 @@ class E911ModuleState {
                 }
             }
             [PSCustomObject]@{
-                HouseNumber     = $MapsAddress.address.streetNumber
-                StreetName      = ($MapsAddress.address.streetName -split ',')[0]
-                City            = ($MapsAddress.address.municipality -split ',')[0]
-                StateOrProvince = $MapsAddress.address.countrySubdivision
-                PostalCode      = $PostalOrZipCode
-                Country         = $MapsAddress.address.countryCode
-                Latitude        = $MapsAddress.position.lat
-                Longitude       = $MapsAddress.position.lon
+                HouseNumber        = $MapsAddress.address.streetNumber
+                StreetName         = ($MapsAddress.address.streetName -split ',')[0]
+                City               = ($MapsAddress.address.municipality -split ',')[0]
+                AlternateCityNames = @(($MapsAddress.address.localName -split ',')[0] , ($MapsAddress.address.municipalitySubdivision -split ',')[0]).Where({ ![string]::IsNullOrEmpty($_) })
+                StateOrProvince    = $MapsAddress.address.countrySubdivision
+                PostalCode         = $PostalOrZipCode
+                Country            = $MapsAddress.address.countryCode
+                Latitude           = $MapsAddress.position.lat
+                Longitude          = $MapsAddress.position.lon
             }
         }
         if (!$AzureMapsAddress) {
@@ -1119,11 +1217,13 @@ class E911ModuleState {
         $Warned = $false
         # write warnings for changes from input
         $AzureAddress = "{0} {1}" -f $AzureMapsAddress.HouseNumber, $AzureMapsAddress.StreetName
-        if ($ResultFound -and $Address.Address -ne $AzureAddress) {
+        if ($ResultFound -and !([E911ModuleState]::TestIsAddressMatch($AzureAddress, $Address.Address))) {
+            # need to be better with fuzzy match here
             $Address.Warning.Add([WarningType]::MapsValidation, "Provided Address: '$($Address.Address)' does not match Azure Maps Address: '$($AzureAddress)'!")
             $Warned = $true
         }
-        if ($ResultFound -and $Address.City -ne $AzureMapsAddress.City) {
+        if ($ResultFound -and $Address.City -ne $AzureMapsAddress.City -and $Address.City -notin $AzureMapsAddress.AlternateCityNames) {
+            # need to be better with fuzzy match here
             $Address.Warning.Add([WarningType]::MapsValidation, "Provided City: '$($Address.City)' does not match Azure Maps City: '$($AzureMapsAddress.City)'!")
             $Warned = $true
         }
@@ -1526,6 +1626,10 @@ class E911ModuleState {
     }
     hidden static [int] $_geocodeDecimalPlaces = 3
     hidden static [bool] CompareDoubleFuzzy([double] $ReferenceNum, [double] $DifferenceNum) {
+        $Same = [Math]::Round($ReferenceNum, [E911ModuleState]::_geocodeDecimalPlaces) -eq [Math]::Round($DifferenceNum, [E911ModuleState]::_geocodeDecimalPlaces)
+        if ($Same) {
+            return $true
+        }
         $Delta = [Math]::Abs($ReferenceNum - $DifferenceNum)
         $FmtString = [string]::new("0", [E911ModuleState]::_geocodeDecimalPlaces)
         $IsFuzzyMatch = [Math]::Round($Delta, [E911ModuleState]::_geocodeDecimalPlaces) -eq 0
@@ -1642,6 +1746,9 @@ class E911NetworkObject {
             return
         }
         $this._location = [E911ModuleState]::GetOrCreateLocation($obj, $false)
+        if ([string]::IsNullOrEmpty($this._location.CountryOrRegion)) {
+            $this._isOnline = $false
+        }
         if (![string]::IsNullOrEmpty($this._locationId) -and $this._location.Id.ToString() -ne $this._locationId) {
             # re-home this object to the other matching location id
             $this._hasChanged = $true
@@ -2242,8 +2349,10 @@ function Get-CsE911OnlineConfiguration {
             Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Processing $($nObj.Type):$($nObj.Identifier)"
             if ($null -eq $nObj._location -or $null -eq $nObj._location._address -or ($nObj._isOnline -and !($nObj._location._isOnline -and $nObj._location._address._isOnline))) {
                 Write-Warning "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($nObj.Type):$($nObj.Identifier) is orphaned!"
-                # how should I write this out?
-                continue
+                if (!$IncludeOrphanedConfiguration) {
+                    continue
+                }
+                $nObj.Warning.Add([WarningType]::GeneralFailure, 'Orphaned Network Object')
             }
 
             $Row = [E911DataRow]::new($nObj)
@@ -2272,7 +2381,7 @@ function Get-CsE911OnlineConfiguration {
                 continue
             }
             [void]$FoundLocationHashes.Add($location.GetHash())
-            if ($null -eq $location._address -and !$IncludeOrphanedConfiguration) {
+            if ($null -eq $location._address -or ($location._isOnline -and !$location._address._isOnline) -and !$IncludeOrphanedConfiguration) {
                 Write-Warning "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($location.Location) is orphaned!"
                 continue
             }

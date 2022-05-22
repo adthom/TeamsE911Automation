@@ -29,6 +29,9 @@ class E911Address {
             $addr = $obj.Address
             $this._isOnline = $false
         }
+        if ([string]::IsNullOrEmpty($obj.CountryOrRegion) -and $this._isOnline) {
+            $this._isOnline = $false
+        }
         $this.SkipMapsLookup = $this._isOnline -and $obj.Latitude -ne 0.0 -and $obj.Longitude -ne 0.0 # don't validate an online object that already has geocodes
         if ($ShouldValidate) {
             if ([string]::IsNullOrEmpty($addr)) {
@@ -286,9 +289,9 @@ class E911Address {
     }
 
     hidden static [string] _convertOnlineAddress([PSCustomObject]$Online) {
-        if ($Online -is [E911Address] -or $Online -is [E911Location]) {
-            return ''
-        }
+        # if ($Online -is [E911Address] -or $Online -is [E911Location]) {
+            # return ''
+        # }
         $AddressKeys = @(
             "HouseNumber",
             "HouseNumberSuffix",
@@ -297,13 +300,17 @@ class E911Address {
             "StreetSuffix",
             "PostDirectional"
         )
+
         $addressSb = [Text.StringBuilder]::new()
         foreach ($prop in $AddressKeys) {
-            if (![string]::IsNullOrEmpty($Online.$prop)) {
+            if (![string]::IsNullOrEmpty(($Online.$prop))) {
+                if (($Online.$prop) -isnot [string]) {
+                    continue
+                }
                 if ($addressSb.Length -gt 0) {
                     $addressSb.Append(' ') | Out-Null
                 }
-                $addressSb.Append($Online.$prop.Trim()) | Out-Null
+                $addressSb.Append(($Online.$prop).Trim()) | Out-Null
             }
         }
         return $addressSb.ToString()
