@@ -90,6 +90,9 @@ class E911NetworkObject {
             return
         }
         $this._location = [E911ModuleState]::GetOrCreateLocation($obj, $false)
+        if ([string]::IsNullOrEmpty($this._location.CountryOrRegion)) {
+            $this._isOnline = $false
+        }
         if (![string]::IsNullOrEmpty($this._locationId) -and $this._location.Id.ToString() -ne $this._locationId) {
             # re-home this object to the other matching location id
             $this._hasChanged = $true

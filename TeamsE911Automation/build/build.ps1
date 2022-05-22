@@ -256,7 +256,6 @@ foreach ($import in @($Private + $Public)) {
     }
 }
 
-
 if (![string]::IsNullOrWhiteSpace(($AdditionalModuleChecks = Get-Content -Path "${PSScriptRoot}\modulechecks.ps1" -ErrorAction SilentlyContinue))) {
     Add-Content -Path $moduleFile -Value ''
     Add-Content -Path $moduleFile -Value $AdditionalModuleChecks

@@ -9,7 +9,7 @@ class E911Location {
     hidden [E911Address] $_address
 
     E911Location ([PSCustomObject] $obj, [bool] $ShouldValidate) {
-        if (![string]::IsNullOrEmpty($obj.LocationId)) {
+        if (![string]::IsNullOrEmpty($obj.LocationId) -and ![string]::IsNullOrEmpty($obj.CountryOrRegion)) {
             # made via online location
             $this._isOnline = $true
             $this.Id = [ItemId]::new($obj.LocationId)
