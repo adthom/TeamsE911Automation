@@ -1217,12 +1217,7 @@ class E911ModuleState {
         $Warned = $false
         # write warnings for changes from input
         $AzureAddress = "{0} {1}" -f $AzureMapsAddress.HouseNumber, $AzureMapsAddress.StreetName
-<<<<<<< HEAD
         if ($ResultFound -and !([E911ModuleState]::TestIsAddressMatch($AzureAddress, $Address.Address))) {
-=======
-        if ($ResultFound -and $Address.Address -ne $AzureAddress) {
-        # if ($ResultFound -and !([E911ModuleState]::TestIsAddressMatch($AzureAddress, $Address.Address))) {
->>>>>>> f431cee99f953d369e088db9c828553939f385a6
             # need to be better with fuzzy match here
             $Address.Warning.Add([WarningType]::MapsValidation, "Provided Address: '$($Address.Address)' does not match Azure Maps Address: '$($AzureAddress)'!")
             $Warned = $true
