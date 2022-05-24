@@ -131,10 +131,10 @@ try {{
     }}
     catch {{
         $Connected = $false
-        Import-Module -Name MicrosoftTeams -ErrorAction Stop | Out-Null
+        $null = Import-Module -Name MicrosoftTeams -ErrorAction Stop
     }}
     if (!$Connected) {{
-        Connect-MicrosoftTeams -AccessTokens ($_sync.TokenCache.Values.AccessToken) -ErrorAction Stop | Out-Null
+        $null = Connect-MicrosoftTeams -AccessTokens ($_sync.TokenCache.Values.AccessToken) -ErrorAction Stop
         [Microsoft.TeamsCmdlets.PowerShell.Connect.TokenProvider.AccessTokenCache]::AccessTokens = $_sync.TokenCache
         [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::SessionProvider.PublicClientApplication = $_sync.Application
     }}
@@ -217,9 +217,9 @@ finally {{
                     $Runspace = $Runspaces.Where({ $_.RunspaceAvailability -eq 'Available' }, 'First', 1)[0]
                 }
                 $newJob.PowerShell.Runspace = $Runspace
-                $newJob.PowerShell.AddScript(($BaseScript -f $Batches[$i].Script)) | Out-Null
+                $null = $newJob.PowerShell.AddScript(($BaseScript -f $Batches[$i].Script))
                 $newJob.Handle = $newJob.PowerShell.BeginInvoke()
-                $Jobs.Add($newJob) | Out-Null
+                $null = $Jobs.Add($newJob)
             }
             do {
                 if (([DateTime]::Now - $curr).TotalSeconds -ge $UpdateInterval) {

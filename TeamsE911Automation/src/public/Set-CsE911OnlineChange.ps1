@@ -1,5 +1,5 @@
 function Set-CsE911OnlineChange {
-    [CmdletBinding(DefaultParameterSetName = 'Execute')]
+    [CmdletBinding(DefaultParameterSetName = 'Execute', SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param (
         # Parameter help description
         [Parameter(Mandatory = $true, ValueFromPipeline = $true, ParameterSetName = 'Execute')]
@@ -109,7 +109,9 @@ function Set-CsE911OnlineChange {
                 try {
                     Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)"
                     if (!$ValidateOnly) {
-                        Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop | Out-Null
+                        if ($PSCmdlet.ShouldProcess()) {
+                            $null = Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop
+                        }
                     }
                     if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
                         $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath
@@ -189,7 +191,9 @@ function Set-CsE911OnlineChange {
                 try {
                     Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)"
                     if (!$ValidateOnly) {
-                        Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop | Out-Null
+                        if ($PSCmdlet.ShouldProcess()) {
+                            $null = Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop
+                        }
                     }
                     if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
                         $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath
@@ -212,3 +216,4 @@ function Set-CsE911OnlineChange {
         Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
     }
 }
+

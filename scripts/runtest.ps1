@@ -24,7 +24,7 @@ function Remove-CsE911Configuration {
     $i = 0
     foreach ($Subnet in $Subnets) {
         Write-Verbose "Removing Subnet:$($Subnet.Subnet)"
-        Remove-CsOnlineLisSubnet -Subnet $Subnet.Subnet | Out-Null
+        $null = Remove-CsOnlineLisSubnet -Subnet $Subnet.Subnet
         $i++
     }
     Write-Information "Removed $i subnets"
@@ -33,7 +33,7 @@ function Remove-CsE911Configuration {
     $i = 0
     foreach ($Switch in $Switches) {
         Write-Verbose "Removing Switch:$($Switch.ChassisId)"
-        Remove-CsOnlineLisSwitch -ChassisId $Switch.ChassisId | Out-Null
+        $null = Remove-CsOnlineLisSwitch -ChassisId $Switch.ChassisId
         $i++
     }
     Write-Information "Removed $i switches"
@@ -42,7 +42,7 @@ function Remove-CsE911Configuration {
     $i = 0
     foreach ($Port in $Ports) {
         Write-Verbose "Removing Port:$($Port.ChassisId):$($Port.PortId)"
-        Remove-CsOnlineLisPort -PortId $Port.PortId -ChassisId $Port.ChassisId | Out-Null
+        $null = Remove-CsOnlineLisPort -PortId $Port.PortId -ChassisId $Port.ChassisId
         $i++
     }
     Write-Information "Removed $i ports"
@@ -51,7 +51,7 @@ function Remove-CsE911Configuration {
     $i = 0
     foreach ($WAP in $WirelessAccessPoints) { 
         Write-Verbose "Removing WAP:$($WAP.Bssid)"
-        Remove-CsOnlineLisWirelessAccessPoint -Bssid $WAP.Bssid | Out-Null
+        $null = Remove-CsOnlineLisWirelessAccessPoint -Bssid $WAP.Bssid
         $i++
     }
     Write-Information "Removed $i wireless access points"
@@ -64,13 +64,13 @@ function Remove-CsE911Configuration {
         $addr = $Addresses.Where({ $_.CivicAddressId -eq $Location.CivicAddressId -and $Location.LocationId -ne $_.DefaultLocationId })
         if ($null -eq $addr -or $addr.Count -eq 0) { continue }
         Write-Verbose "Removing Location:$($Location.LocationId)-$($Location.Location)"
-        Remove-CsOnlineLisLocation -LocationId $Location.LocationId | Out-Null
+        $null = Remove-CsOnlineLisLocation -LocationId $Location.LocationId
         $i++
     }
     foreach ($Address in $Addresses) {
         if ($Address.NumberOfVoiceUsers -gt 0 -or $Address.NumberOfTelephoneNumbers -gt 0 ) { continue }
         Write-Verbose "Removing Address:$($Address.CivicAddressId)-$($Address.HouseNumber) $($Address.StreetName)"
-        Remove-CsOnlineLisCivicAddress -CivicAddressId $Address.CivicAddressId | Out-Null
+        $null = Remove-CsOnlineLisCivicAddress -CivicAddressId $Address.CivicAddressId
         $j++
     }
     Write-Information "Removed $i locations"
@@ -105,7 +105,7 @@ function Write-TestEnd {
 
 $ConfigApiCmdlets = [Microsoft.Teams.ConfigApi.Cmdlets.SessionStateStore]::TryConfigApiSessionInfo.SessionConfiguration.RemotingCmdletsFlightedForAutoRest
 $ExistingConfiguration = [Collections.Generic.List[string]]::new()
-$ExistingConfiguration.AddRange($ConfigApiCmdlets) | Out-Null
+$null = $ExistingConfiguration.AddRange($ConfigApiCmdlets)
 $CmdletsToCheck = Get-Command -Verb @('Get', 'Set', 'Remove') -Noun CsOnlineLis* | Select-Object -ExpandProperty Name
 $changedFlighting = $false
 Write-Separator
@@ -115,14 +115,14 @@ foreach ($cmdlet in $CmdletsToCheck) {
     if ($cmdlet -in $ConfigApiCmdlets) {
         Write-Information "REST:   $cmdlet"
         if ($Endpoint -eq "Legacy") {
-            $ConfigApiCmdlets.Remove($cmdlet) | Out-Null
+            $null = $ConfigApiCmdlets.Remove($cmdlet)
             $changedFlighting = $true
         }
     }
     else {
         Write-Information "Legacy: $cmdlet"
         if ($Endpoint -eq "REST") {
-            $ConfigApiCmdlets.Add($cmdlet) | Out-Null
+            $null = $ConfigApiCmdlets.Add($cmdlet)
             $changedFlighting = $true
         }
     }
@@ -191,18 +191,18 @@ finally {
         $ConfigApiCmdlets = [Microsoft.Teams.ConfigApi.Cmdlets.SessionStateStore]::TryConfigApiSessionInfo.SessionConfiguration.RemotingCmdletsFlightedForAutoRest
         foreach ($prev in $ExistingConfiguration) {
             if ($prev -notin $ConfigApiCmdlets) {
-                $ConfigApiCmdlets.Add($prev) | Out-Null
+                $null = $ConfigApiCmdlets.Add($prev)
             }
         }
         $Added = [Collections.Generic.List[string]]::new()
         foreach ($curr in $ConfigApiCmdlets) {
             if ($curr -notin $ExistingConfiguration) {
-                $Added.Add($curr) | Out-Null
+                $null = $Added.Add($curr)
             }
         }
         foreach ($curr in $Added) {
             if ($curr -notin $ExistingConfiguration) {
-                $ConfigApiCmdlets.Remove($curr) | Out-Null
+                $null = $ConfigApiCmdlets.Remove($curr)
             }
         }
         Write-Separator

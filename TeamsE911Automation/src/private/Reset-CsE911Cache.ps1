@@ -1,7 +1,9 @@
 function Reset-CsE911Cache {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Low')]
     param()
     end {
-        [E911ModuleState]::FlushCaches($null)
+        if ($PSCmdlet.ShouldProcess()) {
+            [E911ModuleState]::FlushCaches($null)
+        }
     }
 }

@@ -1386,7 +1386,7 @@ class E911ModuleState {
         $dup = $false
         if ([E911ModuleState]::NetworkObjects.ContainsKey($Hash)) {
             $Test = [E911ModuleState]::NetworkObjects[$Hash]
-            if ([E911Location]::Equals($obj, $Test.Location)) {
+            if ([E911Location]::Equals($obj, $Test._location)) {
                 return $Test
             }
             $dup = $true
@@ -1785,7 +1785,7 @@ class E911NetworkObject {
             else {
                 $LocationId = '"{0}"' -f $this._location.Id.ToString()
             }
-            [void]$sb.AppendFormat('Set-CsOnlineLis{0} -LocationId {1}', $this.Type, $LocationId)
+            [void]$sb.AppendFormat('$null = Set-CsOnlineLis{0} -LocationId {1}', $this.Type, $LocationId)
             if (![string]::IsNullOrEmpty($this.Description)) {
                 [void]$sb.AppendFormat(' -Description "{0}"', $this.Description)
             }
@@ -1801,7 +1801,7 @@ class E911NetworkObject {
             if ($this.Type -eq [NetworkObjectType]::WirelessAccessPoint) {
                 [void]$sb.AppendFormat(' -Bssid "{0}"', $this.Identifier.PhysicalAddress)
             }
-            [void]$sb.Append(' -ErrorAction Stop | Out-Null')
+            [void]$sb.Append(' -ErrorAction Stop')
             $this._command = $sb.ToString()
         }
         return $this._command
@@ -1881,8 +1881,59 @@ class E911NetworkObject {
         $Desc2 = if ($null -eq $Value2.LocationId -and $Value2 -isnot [E911NetworkObject]) { $Value2.NetworkDescription } else { $Value2.Description }
         $D1 = if ([string]::IsNullOrEmpty($Desc1)) { '' } else { $Desc1 }
         $D2 = if ([string]::IsNullOrEmpty($Desc2)) { '' } else { $Desc2 }
+        if ($D1 -ne $D2) {
+            return $false
+        }
+        # see if locations are the same
+        # if Value1 is row
+        $LocationsEqual = if ($null -eq $Value1.LocationId -and $Value1 -isnot [E911NetworkObject]) {
+            # if Value2 is row
+            if ($null -eq $Value2.LocationId -and $Value2 -isnot [E911NetworkObject]) {
+                [E911Location]::Equals($Value1, $Value2)
+            }
+            # if Value2 is network object
+            elseif ($Value2 -is [E911NetworkObject]) {
+                [E911Location]::Equals($Value1, $Value2._location)
+            }
+            # if Value2 is online
+            else { 
+                # cannot compare online network object to row on anything other than hash... or should we see if the online location exists (that would be expensive)
+                throw "(Value2 is online) cannot compare online network object to row network object effectively"
+            }
+        }
+        # if Value1 is network object
+        elseif ($Value1 -is [E911NetworkObject]) {
+            # if Value2 is row
+            if ($null -eq $Value2.LocationId -and $Value2 -isnot [E911NetworkObject]) {
+                [E911Location]::Equals($Value1._location, $Value2)
+            }
+            # if Value2 is network object
+            elseif ($Value2 -is [E911NetworkObject]) {
+                $Value1._location.Equals($Value2._location)
+            }
+            # if Value2 is online
+            else {
+                $Value1.Id.ToString() -eq $Value2.LocationId
+            }
+        }
+        # if Value1 is online
+        else {
+            # if Value2 is row
+            if ($null -eq $Value2.LocationId -and $Value2 -isnot [E911NetworkObject]) {
+                # cannot compare online network object to row on anything other than hash... or should we see if the online location exists (that would be expensive)
+                throw "(Value2 is row) cannot compare online network object to row network object effectively"
+            }
+            # if Value2 is network object
+            elseif ($Value2 -is [E911NetworkObject]) {
+                $Value1.LocationId -eq $Value2.Id.ToString()
+            }
+            # if Value2 is online
+            else { 
+                $Value1.LocationId -eq $Value2.LocationId
+            }
+        }
 
-        return $D1 -eq $D2
+        return $LocationsEqual
     }
 
     [bool] Equals($Value) {
@@ -2431,7 +2482,7 @@ function Get-CsE911OnlineConfiguration {
 
 # (imported from .\public\Set-CsE911OnlineChange.ps1)
 function Set-CsE911OnlineChange {
-    [CmdletBinding(DefaultParameterSetName = 'Execute')]
+    [CmdletBinding(DefaultParameterSetName = 'Execute', SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param (
         # Parameter help description
         [Parameter(Mandatory = $true, ValueFromPipeline = $true, ParameterSetName = 'Execute')]
@@ -2541,7 +2592,9 @@ function Set-CsE911OnlineChange {
                 try {
                     Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)"
                     if (!$ValidateOnly) {
-                        Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop | Out-Null
+                        if ($PSCmdlet.ShouldProcess()) {
+                            $null = Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop
+                        }
                     }
                     if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
                         $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath
@@ -2621,7 +2674,9 @@ function Set-CsE911OnlineChange {
                 try {
                     Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)"
                     if (!$ValidateOnly) {
-                        Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop | Out-Null
+                        if ($PSCmdlet.ShouldProcess()) {
+                            $null = Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop
+                        }
                     }
                     if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
                         $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath
@@ -2647,10 +2702,12 @@ function Set-CsE911OnlineChange {
 
 # (imported from .\private\Reset-CsE911Cache.ps1)
 function Reset-CsE911Cache {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Low')]
     param()
     end {
-        [E911ModuleState]::FlushCaches($null)
+        if ($PSCmdlet.ShouldProcess()) {
+            [E911ModuleState]::FlushCaches($null)
+        }
     }
 }
 

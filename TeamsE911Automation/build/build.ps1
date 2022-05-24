@@ -164,10 +164,10 @@ foreach ( $p in $Parameters ) {
 
 # Remove old release, copy all data from src to releasePath
 if ( -not ( Test-Path -Path $releasePath -PathType Container) ) {
-    New-Item -Path $releasePath -ItemType Directory | Out-Null
+    $null = New-Item -Path $releasePath -ItemType Directory
 }
 
-Get-ChildItem "${releasePath}/" -Recurse | Remove-Item -Recurse | Out-Null
+$null = Get-ChildItem "${releasePath}/" -Recurse | Remove-Item -Recurse
 
 $srcPathPattern = [Regex]::Escape($srcPath)
 foreach ($srcFile in @($Public + $Private)) {
@@ -176,7 +176,7 @@ foreach ($srcFile in @($Public + $Private)) {
     $targetFile = $srcFile.FullName -Replace $srcPathPattern, $releasePath
     $targetFolder = $srcFile.Directory.FullName -Replace $srcPathPattern, $releasePath
     if (!(Test-Path -Path $targetFolder)) {
-        New-Item -Path $targetFolder -ItemType Directory | Out-Null
+        $null = New-Item -Path $targetFolder -ItemType Directory
     }
     if ((Test-Path -Path $targetFile)) {
         Remove-Item -Path $targetFile -Force -ErrorAction SilentlyContinue
@@ -227,12 +227,12 @@ foreach ($ClassFile in $ClassFiles) {
     foreach ($line in $currClass) {
         [void]$Classes.AppendLine($line)
     }
+    [void]$Classes.AppendLine()
 }
 if ($Classes.Length -gt 0) {
     Add-Content -Path $moduleFile -Value '# Loading Classes'
     Add-Content -Path $moduleFile -Value ''
     Add-Content -Path $moduleFile -Value $Classes.ToString()
-    Add-Content -Path $moduleFile -Value ''
 }
 
 #Get public and private function definition files.
@@ -249,7 +249,7 @@ foreach ($import in @($Private + $Public)) {
         Add-Content -Path $moduleFile -Value "# $($import.BaseName)"
         $Raw = Get-Content -Path $import.FullName -Raw
         $Raw = ($Raw.Trim() -replace '(\r?\n){3,}',([Environment]::NewLine + [Environment]::NewLine)) + [Environment]::NewLine
-        $Raw | Add-Content -Path $moduleFile | Out-Null
+        $null = $Raw | Add-Content -Path $moduleFile
     }
     catch {
         Write-Error -Message "Failed to import function $($import.FullName): $_"

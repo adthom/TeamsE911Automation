@@ -340,7 +340,7 @@ class E911ModuleState {
         $dup = $false
         if ([E911ModuleState]::NetworkObjects.ContainsKey($Hash)) {
             $Test = [E911ModuleState]::NetworkObjects[$Hash]
-            if ([E911Location]::Equals($obj, $Test.Location)) {
+            if ([E911Location]::Equals($obj, $Test._location)) {
                 return $Test
             }
             $dup = $true
