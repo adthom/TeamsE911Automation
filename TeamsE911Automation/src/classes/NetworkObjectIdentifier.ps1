@@ -35,6 +35,8 @@ class NetworkObjectIdentifier {
         throw
     }
 
+    NetworkObjectIdentifier() {}
+
     [string] ToString() {
         $sb = [System.Text.StringBuilder]::new()
         if (![string]::IsNullOrEmpty($this.PhysicalAddress)) {

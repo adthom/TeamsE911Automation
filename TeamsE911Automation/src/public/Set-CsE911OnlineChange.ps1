@@ -1,15 +1,10 @@
 function Set-CsE911OnlineChange {
-    [CmdletBinding(DefaultParameterSetName = 'Execute', SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param (
         # Parameter help description
-        [Parameter(Mandatory = $true, ValueFromPipeline = $true, ParameterSetName = 'Execute')]
-        [Parameter(Mandatory = $true, ValueFromPipeline = $true, ParameterSetName = 'Validate')]
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
         [ChangeObject[]]
         $PendingChange,
-
-        [Parameter(Mandatory = $true, ParameterSetName = 'Validate')]
-        [switch]
-        $ValidateOnly,
 
         [Parameter(Mandatory = $false)]
         [string]
@@ -18,48 +13,51 @@ function Set-CsE911OnlineChange {
     begin {
         $vsw = [Diagnostics.Stopwatch]::StartNew()
         Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
-        try {
-            [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
-            # maybe check for token expiration here?
-        }
-        catch {
-            throw "Run Connect-MicrosoftTeams prior to executing this script!"
-        }
-        if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
-            # validate path is valid here, add header to file
-            if (!(Test-Path -Path $ExecutionPlanPath -IsValid)) {
-                $ExecutionPlanPath = ''
-            }
-            if ((Test-Path -Path $ExecutionPlanPath -PathType Container -ErrorAction SilentlyContinue)) {
-                # get new file name:
-                $ExecutionName = if ($ValidateOnly) { 'ExecutionPlan' } else { 'ExecutedCommands' }
-                $Date = '{0:yyyy-MM-dd HH:mm:ss}' -f [DateTime]::Now
-                $FileName = 'E911{0}_{1:yyyyMMdd_HHmmss}.txt' -f $ExecutionName, [DateTime]::Now
-                $ExecutionPlanPath = Join-Path -Path $ExecutionPlanPath -ChildPath $FileName
-            }
-            try {
-                Set-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# *******************************************************************************'
-                if ($ValidateOnly) {
-                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# Teams E911 Automation generated execution plan'
-                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# The following commands are what the workflow would execute in a live scenario'
-                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# These must be executed from a valid MicrosoftTeams PowerShell session'
-                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# These commands must be executed in-order in the same PowerShell session'
+        Assert-TeamsIsConnected
+        function New-ExecutionPlanFile {
+            [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
+            param (
+                [Parameter(Mandatory = $false)]
+                [string]
+                $ExecutionPlanPath
+            )
+            if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
+                # validate path is valid here, add header to file
+                if (!(Test-Path -Path $ExecutionPlanPath -IsValid)) {
+                    $ExecutionPlanPath = ''
                 }
-                else {
-                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# Teams E911 Automation executed commands'
-                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value "# The following commands are what workflow executed at $Date"
+                if ((Test-Path -Path $ExecutionPlanPath -PathType Container -ErrorAction SilentlyContinue)) {
+                    # get new file name:
+                    $ExecutionName = if (!$PSCmdlet.ShouldProcess("Creating Execution Plan File Name")) { 'ExecutionPlan' } else { 'ExecutedCommands' }
+                    $Date = '{0:yyyy-MM-dd HH:mm:ss}' -f [DateTime]::Now
+                    $FileName = 'E911{0}_{1:yyyyMMdd_HHmmss}.txt' -f $ExecutionName, [DateTime]::Now
+                    $ExecutionPlanPath = Join-Path -Path $ExecutionPlanPath -ChildPath $FileName
                 }
-                Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# *******************************************************************************'
-                Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value ''
-            }
-            catch {
-                Write-Warning "file write failed: $($_.Exception.Message)"
-                $ExecutionPlanPath = ''
-            }
-            if ([string]::IsNullOrEmpty($ExecutionPlanPath)) {
-                Write-Warning "$($ExecutionPlanPath) is not a writeable path, execution plan will not be saved!"
+                try {
+                    Set-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# *******************************************************************************'
+                    if ($PSCmdlet.ShouldProcess("Creating Execution Plan Header")) {
+                        Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# Teams E911 Automation generated execution plan'
+                        Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# The following commands are what the workflow would execute in a live scenario'
+                        Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# These must be executed from a valid MicrosoftTeams PowerShell session'
+                        Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# These commands must be executed in-order in the same PowerShell session'
+                    }
+                    else {
+                        Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# Teams E911 Automation executed commands'
+                        Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value "# The following commands are what workflow executed at $Date"
+                    }
+                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value '# *******************************************************************************'
+                    Add-Content -Path $ExecutionPlanPath -ErrorAction Stop -Value ''
+                }
+                catch {
+                    Write-Warning "file write failed: $($_.Exception.Message)"
+                    $ExecutionPlanPath = ''
+                }
+                if ([string]::IsNullOrEmpty($ExecutionPlanPath)) {
+                    Write-Warning "$($ExecutionPlanPath) is not a writeable path, execution plan will not be saved!"
+                }
             }
         }
+        $ExecutionPlanFileCreated = $false
         $ProcessedChanges = [Collections.Generic.List[ItemId]]::new()
         $PendingChanges = [Collections.Generic.Dictionary[int, Collections.Generic.List[ChangeObject]]]::new()
         $i = 0
@@ -107,13 +105,14 @@ function Set-CsE911OnlineChange {
                 }
                 $changeCount++
                 try {
-                    Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)"
-                    if (!$ValidateOnly) {
-                        if ($PSCmdlet.ShouldProcess()) {
-                            $null = Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop
-                        }
+                    if ($PSCmdlet.ShouldProcess("[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)")) {
+                        $null = Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop
                     }
                     if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
+                        if (!$ExecutionPlanFileCreated) {
+                            New-ExecutionPlanFile -ExecutionPlanPath $ExecutionPlanPath
+                            $ExecutionPlanFileCreated = $true
+                        }
                         $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath
                     }
                     $ProcessedChanges.Add($Change.Id)
@@ -123,6 +122,10 @@ function Set-CsE911OnlineChange {
                     $Change.CommandObject.Warning.Add([WarningType]::OnlineChangeError, "Command: { $($Change.ProcessInfo) } ErrorMessage: $($_.Exception.Message)")
                     Write-Warning "Command: { $($Change.ProcessInfo) } ErrorMessage: $($_.Exception.Message)"
                     if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
+                        if (!$ExecutionPlanFileCreated) {
+                            New-ExecutionPlanFile -ExecutionPlanPath $ExecutionPlanPath
+                            $ExecutionPlanFileCreated = $true
+                        }
                         "# COMMAND FAILED! ERROR:" | Add-Content -Path $ExecutionPlanPath
                         "# $($_.Exception.Message -replace "`n","`n# ")" | Add-Content -Path $ExecutionPlanPath
                     }
@@ -189,13 +192,14 @@ function Set-CsE911OnlineChange {
                 }
                 $changeCount++
                 try {
-                    Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)"
-                    if (!$ValidateOnly) {
-                        if ($PSCmdlet.ShouldProcess()) {
-                            $null = Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop
-                        }
+                    if ($PSCmdlet.ShouldProcess("[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] $($Change.ProcessInfo)")) {
+                        $null = Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop
                     }
                     if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
+                        if (!$ExecutionPlanFileCreated) {
+                            New-ExecutionPlanFile -ExecutionPlanPath $ExecutionPlanPath
+                            $ExecutionPlanFileCreated = $true
+                        }
                         $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath
                     }
                     $ProcessedChanges.Add($Change.Id)
@@ -205,6 +209,10 @@ function Set-CsE911OnlineChange {
                     $Change.CommandObject.Warning.Add([WarningType]::OnlineChangeError, "Command: { $($Change.ProcessInfo) } ErrorMessage: $($_.Exception.Message)")
                     Write-Warning "Command: { $($Change.ProcessInfo) } ErrorMessage: $($_.Exception.Message)"
                     if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
+                        if (!$ExecutionPlanFileCreated) {
+                            New-ExecutionPlanFile -ExecutionPlanPath $ExecutionPlanPath
+                            $ExecutionPlanFileCreated = $true
+                        }
                         "# COMMAND FAILED! ERROR:" | Add-Content -Path $ExecutionPlanPath
                         "# $($_.Exception.Message -replace "`n","`n# ")" | Add-Content -Path $ExecutionPlanPath
                     }
@@ -216,4 +224,3 @@ function Set-CsE911OnlineChange {
         Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Finished"
     }
 }
-

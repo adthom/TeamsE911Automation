@@ -57,6 +57,10 @@ class E911DataRow {
         $this.Init($null, $false)
     }
 
+    E911DataRow([hashtable]$hash) {
+        $this.Init(([PSCustomObject]$hash), $false)
+    }
+
     E911DataRow([PSCustomObject]$obj) {
         $this.Init($obj, $false)
     }

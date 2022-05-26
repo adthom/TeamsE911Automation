@@ -8,13 +8,7 @@ function Get-CsE911OnlineConfiguration {
     begin {
         $vsw = [Diagnostics.Stopwatch]::StartNew()
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
-        try {
-            [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
-            # maybe check for token expiration here?
-        }
-        catch {
-            throw "Run Connect-MicrosoftTeams prior to executing this script!"
-        }
+        Assert-TeamsIsConnected
         # initialize caches
         [E911ModuleState]::ShouldClear = $true
         [E911ModuleState]::InitializeCaches($vsw)

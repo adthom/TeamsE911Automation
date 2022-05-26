@@ -4,7 +4,7 @@ function Get-CsE911NeededChange {
     param (
         # Parameter help description
         [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
-        [E911DataRow[]]
+        [PSCustomObject[]]
         $LocationConfiguration,
 
         [switch]
@@ -15,13 +15,7 @@ function Get-CsE911NeededChange {
         $vsw = [Diagnostics.Stopwatch]::StartNew()
         $StartingCount = [Math]::Max(0, [E911ModuleState]::MapsQueryCount)
         Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
-        try {
-            [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
-            # maybe check for token expiration here?
-        }
-        catch {
-            throw "Run Connect-MicrosoftTeams prior to executing this script!"
-        }
+        Assert-TeamsIsConnected
         [E911ModuleState]::ForceOnlineCheck = $ForceOnlineCheck
         [E911ModuleState]::ShouldClear = $true
         [E911ModuleState]::InitializeCaches($vsw)
@@ -32,7 +26,8 @@ function Get-CsE911NeededChange {
         $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
     }
     process {
-        foreach ($lc in $LocationConfiguration) {
+        foreach ($obj in $LocationConfiguration) {
+            $lc = [E911DataRow]::new($obj)
             if ($MyInvocation.PipelinePosition -gt 1) {
                 $Total = $Input.Count
             }
