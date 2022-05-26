@@ -18,13 +18,7 @@ function Set-CsE911OnlineChange {
     begin {
         $vsw = [Diagnostics.Stopwatch]::StartNew()
         Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
-        try {
-            [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
-            # maybe check for token expiration here?
-        }
-        catch {
-            throw "Run Connect-MicrosoftTeams prior to executing this script!"
-        }
+        Assert-TeamsIsConnected
         if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
             # validate path is valid here, add header to file
             if (!(Test-Path -Path $ExecutionPlanPath -IsValid)) {

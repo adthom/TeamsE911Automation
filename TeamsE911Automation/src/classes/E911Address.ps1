@@ -66,16 +66,16 @@ class E911Address {
             }
             if (![string]::IsNullOrEmpty($obj.Longitude) -xor ![string]::IsNullOrEmpty($obj.Latitude)) {
                 # only one provided of lat or long, both are required if either is present
-                [void]$this.Warning.Add($WarnType, "Missing $(if([string]::IsNullOrEmpty($obj.Latitude)) { "Latitude" } else { "Longitude" })")
+                [void]$this.Warning.Add($WarnType, "$(if([string]::IsNullOrEmpty($obj.Latitude)) { "Latitude" } else { "Longitude" }) missing")
 
             }
             if ($this.SkipMapsLookup -or ![string]::IsNullOrEmpty($obj.Latitude) -or ![string]::IsNullOrEmpty($obj.Longitude)) {
                 $long = $null
                 $lat = $null
-                if (![double]::TryParse($obj.Longitude, [ref] $long) -or ($long -gt 180.0 -or $long -lt -180.0)) {
-                    [void]$this.Warning.Add($WarnType, "Longitude '$($obj.Latitude)'")
+                if (![string]::IsNullOrEmpty($obj.Longitude) -and ![double]::TryParse($obj.Longitude, [ref] $long) -or ($long -gt 180.0 -or $long -lt -180.0)) {
+                    [void]$this.Warning.Add($WarnType, "Longitude '$($obj.Longitude)'")
                 }
-                if (![double]::TryParse($obj.Latitude, [ref] $lat) -or ($lat -gt 90.0 -or $lat -lt -90.0)) {
+                if (![string]::IsNullOrEmpty($obj.Latitude) -and ![double]::TryParse($obj.Latitude, [ref] $lat) -or ($lat -gt 90.0 -or $lat -lt -90.0)) {
                     [void]$this.Warning.Add($WarnType, "Latitude '$($obj.Latitude)'")
                 }
             }

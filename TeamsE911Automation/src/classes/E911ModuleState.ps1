@@ -94,7 +94,7 @@ class E911ModuleState {
             $Address.Warning.Add([WarningType]::MapsValidation, 'No Maps API Key Found')
             return
         }
-        $QueryArgs = @{
+        $QueryArgs = [ordered]@{
             'subscription-key' = [E911ModuleState]::MapsKey()
             'api-version'      = '1.0'
             query              = [E911ModuleState]::_getAddressInMapsQueryForm($Address)
@@ -133,6 +133,7 @@ class E911ModuleState {
         $AzureMapsAddress = if ( $Response.summary.totalResults -gt 0 ) {
             $MapsAddress = @($Response.results | Sort-Object -Property score -Descending).Where({ $_.type -in @('Point Address', 'Address Range') }, 'First', 1)[0]
             if ($null -eq $MapsAddress) {
+                $Address.Warning.Add([WarningType]::MapsValidation, "No Addresses Found")
                 return
             }
             $PostalOrZipCode = switch ($MapsAddress.address.countryCode) {
@@ -166,7 +167,7 @@ class E911ModuleState {
         $MapResultString = $($AzureMapsAddress | ConvertTo-Json -Compress)
         $ResultFound = ![string]::IsNullOrEmpty($MapResultString)
         if (!$ResultFound) {
-            $Address.Warning.Add([WarningType]::MapsValidation, "Location was not found by Azure Maps!")
+            $Address.Warning.Add([WarningType]::MapsValidation, "Address Not Found")
         }
         $Warned = $false
         # write warnings for changes from input
@@ -343,9 +344,11 @@ class E911ModuleState {
             if ([E911Location]::Equals($obj, $Test._location)) {
                 return $Test
             }
-            $dup = $true
-            $Test._isDuplicate = $true
-            $Test.Warning.Add([WarningType]::DuplicateNetworkObject, "$($Test.Type):$($Test.Identifier) exists in other rows")
+            if ($Test.Type -ne [NetworkObjectType]::Unknown) {
+                $dup = $true
+                $Test._isDuplicate = $true
+                $Test.Warning.Add([WarningType]::DuplicateNetworkObject, "$($Test.Type):$($Test.Identifier) exists in other rows")
+            }
         }
         $OnlineChanged = $false
         if ([E911ModuleState]::OnlineNetworkObjects.ContainsKey($Hash)) {
@@ -362,9 +365,13 @@ class E911ModuleState {
         if ($dup) {
             $New.Warning.Add([WarningType]::DuplicateNetworkObject, "$($New.Type):$($New.Identifier) exists in other rows")
         }
-        if (!$dup -and $New.Type -ne [NetworkObjectType]::Unknown -and ((!$New._isOnline -and $ShouldValidate) -or $OnlineChanged)) {
-            $New._hasChanged = $true
-            [E911ModuleState]::NetworkObjects.Add($New.GetHash(), $New)
+        if (!$dup <#-and $New.Type -ne [NetworkObjectType]::Unknown#> -and ((!$New._isOnline -and $ShouldValidate) -or $OnlineChanged)) {
+            if ($New.Type -ne [NetworkObjectType]::Unknown) {
+                $New._hasChanged = $true
+            }
+            if (![E911ModuleState]::NetworkObjects.ContainsKey($New.GetHash())) {
+                [E911ModuleState]::NetworkObjects.Add($New.GetHash(), $New)
+            }
             if ($Hash -ne $New.GetHash()) {
                 [E911ModuleState]::NetworkObjects.Add($Hash, $New)
             }

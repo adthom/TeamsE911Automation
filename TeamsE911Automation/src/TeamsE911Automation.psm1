@@ -222,16 +222,16 @@ class E911Address {
             }
             if (![string]::IsNullOrEmpty($obj.Longitude) -xor ![string]::IsNullOrEmpty($obj.Latitude)) {
                 # only one provided of lat or long, both are required if either is present
-                [void]$this.Warning.Add($WarnType, "Missing $(if([string]::IsNullOrEmpty($obj.Latitude)) { "Latitude" } else { "Longitude" })")
+                [void]$this.Warning.Add($WarnType, "$(if([string]::IsNullOrEmpty($obj.Latitude)) { "Latitude" } else { "Longitude" }) missing")
 
             }
             if ($this.SkipMapsLookup -or ![string]::IsNullOrEmpty($obj.Latitude) -or ![string]::IsNullOrEmpty($obj.Longitude)) {
                 $long = $null
                 $lat = $null
-                if (![double]::TryParse($obj.Longitude, [ref] $long) -or ($long -gt 180.0 -or $long -lt -180.0)) {
-                    [void]$this.Warning.Add($WarnType, "Longitude '$($obj.Latitude)'")
+                if (![string]::IsNullOrEmpty($obj.Longitude) -and ![double]::TryParse($obj.Longitude, [ref] $long) -or ($long -gt 180.0 -or $long -lt -180.0)) {
+                    [void]$this.Warning.Add($WarnType, "Longitude '$($obj.Longitude)'")
                 }
-                if (![double]::TryParse($obj.Latitude, [ref] $lat) -or ($lat -gt 90.0 -or $lat -lt -90.0)) {
+                if (![string]::IsNullOrEmpty($obj.Latitude) -and ![double]::TryParse($obj.Latitude, [ref] $lat) -or ($lat -gt 90.0 -or $lat -lt -90.0)) {
                     [void]$this.Warning.Add($WarnType, "Latitude '$($obj.Latitude)'")
                 }
             }
@@ -531,6 +531,10 @@ class E911DataRow {
 
     E911DataRow() {
         $this.Init($null, $false)
+    }
+
+    E911DataRow([hashtable]$hash) {
+        $this.Init(([PSCustomObject]$hash), $false)
     }
 
     E911DataRow([PSCustomObject]$obj) {
@@ -1140,7 +1144,7 @@ class E911ModuleState {
             $Address.Warning.Add([WarningType]::MapsValidation, 'No Maps API Key Found')
             return
         }
-        $QueryArgs = @{
+        $QueryArgs = [ordered]@{
             'subscription-key' = [E911ModuleState]::MapsKey()
             'api-version'      = '1.0'
             query              = [E911ModuleState]::_getAddressInMapsQueryForm($Address)
@@ -1179,6 +1183,7 @@ class E911ModuleState {
         $AzureMapsAddress = if ( $Response.summary.totalResults -gt 0 ) {
             $MapsAddress = @($Response.results | Sort-Object -Property score -Descending).Where({ $_.type -in @('Point Address', 'Address Range') }, 'First', 1)[0]
             if ($null -eq $MapsAddress) {
+                $Address.Warning.Add([WarningType]::MapsValidation, "No Addresses Found")
                 return
             }
             $PostalOrZipCode = switch ($MapsAddress.address.countryCode) {
@@ -1212,7 +1217,7 @@ class E911ModuleState {
         $MapResultString = $($AzureMapsAddress | ConvertTo-Json -Compress)
         $ResultFound = ![string]::IsNullOrEmpty($MapResultString)
         if (!$ResultFound) {
-            $Address.Warning.Add([WarningType]::MapsValidation, "Location was not found by Azure Maps!")
+            $Address.Warning.Add([WarningType]::MapsValidation, "Address Not Found")
         }
         $Warned = $false
         # write warnings for changes from input
@@ -1389,9 +1394,11 @@ class E911ModuleState {
             if ([E911Location]::Equals($obj, $Test._location)) {
                 return $Test
             }
-            $dup = $true
-            $Test._isDuplicate = $true
-            $Test.Warning.Add([WarningType]::DuplicateNetworkObject, "$($Test.Type):$($Test.Identifier) exists in other rows")
+            if ($Test.Type -ne [NetworkObjectType]::Unknown) {
+                $dup = $true
+                $Test._isDuplicate = $true
+                $Test.Warning.Add([WarningType]::DuplicateNetworkObject, "$($Test.Type):$($Test.Identifier) exists in other rows")
+            }
         }
         $OnlineChanged = $false
         if ([E911ModuleState]::OnlineNetworkObjects.ContainsKey($Hash)) {
@@ -1408,9 +1415,13 @@ class E911ModuleState {
         if ($dup) {
             $New.Warning.Add([WarningType]::DuplicateNetworkObject, "$($New.Type):$($New.Identifier) exists in other rows")
         }
-        if (!$dup -and $New.Type -ne [NetworkObjectType]::Unknown -and ((!$New._isOnline -and $ShouldValidate) -or $OnlineChanged)) {
-            $New._hasChanged = $true
-            [E911ModuleState]::NetworkObjects.Add($New.GetHash(), $New)
+        if (!$dup <#-and $New.Type -ne [NetworkObjectType]::Unknown#> -and ((!$New._isOnline -and $ShouldValidate) -or $OnlineChanged)) {
+            if ($New.Type -ne [NetworkObjectType]::Unknown) {
+                $New._hasChanged = $true
+            }
+            if (![E911ModuleState]::NetworkObjects.ContainsKey($New.GetHash())) {
+                [E911ModuleState]::NetworkObjects.Add($New.GetHash(), $New)
+            }
             if ($Hash -ne $New.GetHash()) {
                 [E911ModuleState]::NetworkObjects.Add($Hash, $New)
             }
@@ -1668,7 +1679,14 @@ class E911NetworkObject {
     # override init to allow for pseudo constructor chaining
     hidden Init([string]$newType, [string]$newIdentifier, [string] $Description) {
         if ([string]::IsNullOrEmpty($newType)) { $newType = 'Unknown' }
-        $this.Init([NetworkObjectType]$newType, [NetworkObjectIdentifier]::new($newIdentifier), $Description)
+        try {
+            $NetworkObjectIdentifier = [NetworkObjectIdentifier]::new($newIdentifier)
+        }
+        catch {
+            $NetworkObjectIdentifier = [NetworkObjectIdentifier]::new()
+            [void]$this.Warning.Add([WarningType]::InvalidInput, "NetworkObjectIdentifier '$newIdentifier'")
+        }
+        $this.Init([NetworkObjectType]$newType, $NetworkObjectIdentifier, $Description)
     }
 
     hidden Init([NetworkObjectType]$type, [NetworkObjectIdentifier]$identifier, [string] $Description) {
@@ -1709,6 +1727,7 @@ class E911NetworkObject {
                     $NetworkObjectIdentifier = [NetworkObjectIdentifier]::new($NetworkObjectIdentifier)
                 }
                 catch {
+                    $NetworkObjectIdentifier = [NetworkObjectIdentifier]::new()
                     [void]$this.Warning.Add([WarningType]::InvalidInput, "NetworkObjectIdentifier '$NetworkObjectIdentifier'")
                 }
             }
@@ -1762,6 +1781,10 @@ class E911NetworkObject {
             return
         }
         $this.Init($obj, $ShouldValidate)
+    }
+
+    E911NetworkObject() {
+        $this.Init('Unknown','','')
     }
 
     [NetworkObjectType] $Type
@@ -1855,8 +1878,13 @@ class E911NetworkObject {
             $newIdentifier = if ([string]::IsNullOrEmpty($obj.Identifier)) { $newIdentifier } else { $obj.Identifier }
         }
         $newType = [NetworkObjectType]$newType
-        $newIdentifier = [NetworkObjectIdentifier]::new($newIdentifier)
-        $hash = [Hasher]::GetHash(("${newType}${newIdentifier}").ToLower())
+        try {
+            $newObjIdentifier = [NetworkObjectIdentifier]::new($newIdentifier)
+        }
+        catch {
+            $newObjIdentifier = [NetworkObjectIdentifier]::new()
+        }
+        $hash = [Hasher]::GetHash(("${newType}${newObjIdentifier}").ToLower())
         return $hash
     }
 
@@ -1896,7 +1924,7 @@ class E911NetworkObject {
                 [E911Location]::Equals($Value1, $Value2._location)
             }
             # if Value2 is online
-            else { 
+            else {
                 # cannot compare online network object to row on anything other than hash... or should we see if the online location exists (that would be expensive)
                 throw "(Value2 is online) cannot compare online network object to row network object effectively"
             }
@@ -1928,7 +1956,7 @@ class E911NetworkObject {
                 $Value1.LocationId -eq $Value2.Id.ToString()
             }
             # if Value2 is online
-            else { 
+            else {
                 $Value1.LocationId -eq $Value2.LocationId
             }
         }
@@ -2036,6 +2064,8 @@ class NetworkObjectIdentifier {
         }
         throw
     }
+
+    NetworkObjectIdentifier() {}
 
     [string] ToString() {
         $sb = [System.Text.StringBuilder]::new()
@@ -2232,7 +2262,7 @@ function Get-CsE911NeededChange {
     param (
         # Parameter help description
         [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
-        [E911DataRow[]]
+        [PSCustomObject[]]
         $LocationConfiguration,
 
         [switch]
@@ -2243,13 +2273,7 @@ function Get-CsE911NeededChange {
         $vsw = [Diagnostics.Stopwatch]::StartNew()
         $StartingCount = [Math]::Max(0, [E911ModuleState]::MapsQueryCount)
         Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
-        try {
-            [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
-            # maybe check for token expiration here?
-        }
-        catch {
-            throw "Run Connect-MicrosoftTeams prior to executing this script!"
-        }
+        Assert-TeamsIsConnected
         [E911ModuleState]::ForceOnlineCheck = $ForceOnlineCheck
         [E911ModuleState]::ShouldClear = $true
         [E911ModuleState]::InitializeCaches($vsw)
@@ -2260,7 +2284,8 @@ function Get-CsE911NeededChange {
         $LastMilliseconds = $vsw.Elapsed.TotalMilliseconds
     }
     process {
-        foreach ($lc in $LocationConfiguration) {
+        foreach ($obj in $LocationConfiguration) {
+            $lc = [E911DataRow]::new($obj)
             if ($MyInvocation.PipelinePosition -gt 1) {
                 $Total = $Input.Count
             }
@@ -2356,13 +2381,7 @@ function Get-CsE911OnlineConfiguration {
     begin {
         $vsw = [Diagnostics.Stopwatch]::StartNew()
         Write-Verbose "[$($vsw.Elapsed.TotalMilliseconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
-        try {
-            [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
-            # maybe check for token expiration here?
-        }
-        catch {
-            throw "Run Connect-MicrosoftTeams prior to executing this script!"
-        }
+        Assert-TeamsIsConnected
         # initialize caches
         [E911ModuleState]::ShouldClear = $true
         [E911ModuleState]::InitializeCaches($vsw)
@@ -2501,13 +2520,7 @@ function Set-CsE911OnlineChange {
     begin {
         $vsw = [Diagnostics.Stopwatch]::StartNew()
         Write-Verbose "[$($vsw.Elapsed.TotalSeconds.ToString('F3'))] [$($MyInvocation.MyCommand.Name)] Beginning..."
-        try {
-            [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
-            # maybe check for token expiration here?
-        }
-        catch {
-            throw "Run Connect-MicrosoftTeams prior to executing this script!"
-        }
+        Assert-TeamsIsConnected
         if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
             # validate path is valid here, add header to file
             if (!(Test-Path -Path $ExecutionPlanPath -IsValid)) {
@@ -2700,12 +2713,25 @@ function Set-CsE911OnlineChange {
     }
 }
 
+# (imported from .\private\Assert-TeamsIsConnected.ps1)
+function Assert-TeamsIsConnected {
+    [CmdletBinding()]
+    param()
+    try {
+        [Microsoft.TeamsCmdlets.Powershell.Connect.TeamsPowerShellSession]::ClientAuthenticated()
+        # maybe check for token expiration here?
+    }
+    catch {
+        throw "Run Connect-MicrosoftTeams prior to executing this script!"
+    }
+}
+
 # (imported from .\private\Reset-CsE911Cache.ps1)
 function Reset-CsE911Cache {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Low')]
     param()
     end {
-        if ($PSCmdlet.ShouldProcess()) {
+        if ($PSCmdlet.ShouldProcess("FlushCaches")) {
             [E911ModuleState]::FlushCaches($null)
         }
     }
@@ -2714,6 +2740,7 @@ function Reset-CsE911Cache {
 Export-ModuleMember -Function Get-CsE911NeededChange
 Export-ModuleMember -Function Get-CsE911OnlineConfiguration
 Export-ModuleMember -Function Set-CsE911OnlineChange
+Export-ModuleMember -Function Assert-TeamsIsConnected
 Export-ModuleMember -Function Reset-CsE911Cache
 
 if ([string]::IsNullOrEmpty($env:AZUREMAPS_API_KEY)) {

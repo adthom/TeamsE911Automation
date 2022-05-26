@@ -770,35 +770,35 @@ function Remove-CsOnlineLisConfiguration {
     begin {
         $SW = [Diagnostics.StopWatch]::StartNew()
         $NetworkObjectsRemaining = 0
-        Write-Host "Getting Current Subnets: " -NoNewline
+        Write-Verbose "Getting Current Subnets: "
         $Subnets = @(Get-CsOnlineLisSubnet).Where({ $_.Subnet })
-        Write-Host "Found $($Subnets.Count)"
+        Write-Verbose "Found $($Subnets.Count)"
         $NetworkObjectsRemaining += $Subnets.Count
 
-        Write-Host "Getting Current Switches: " -NoNewline
+        Write-Verbose "Getting Current Switches: "
         $Switches = @(Get-CsOnlineLisSwitch).Where({ $_.ChassisId })
-        Write-Host "Found $($Switches.Count)"
+        Write-Verbose "Found $($Switches.Count)"
         $NetworkObjectsRemaining += $Switches.Count
     
-        Write-Host "Getting Current Ports: " -NoNewline
+        Write-Verbose "Getting Current Ports: "
         $Ports = @(Get-CsOnlineLisPort).Where({ $_.ChassisId -and $_.PortId })
-        Write-Host "Found $($Ports.Count)"
+        Write-Verbose "Found $($Ports.Count)"
         $NetworkObjectsRemaining += $Ports.Count
         
-        Write-Host "Getting Current Wireless Access Points: " -NoNewline
+        Write-Verbose "Getting Current Wireless Access Points: "
         $WirelessAccessPoints = @(Get-CsOnlineLisWirelessAccessPoint).Where({ $_.Bssid })
-        Write-Host "Found $($WirelessAccessPoints.Count)"
+        Write-Verbose "Found $($WirelessAccessPoints.Count)"
         $NetworkObjectsRemaining += $WirelessAccessPoints.Count
 
-        Write-Host "Getting Current Civic Addresses: " -NoNewline
+        Write-Verbose "Getting Current Civic Addresses: "
         $Addresses = @(Get-CsOnlineLisCivicAddress -PopulateNumberOfVoiceUsers -PopulateNumberOfTelephoneNumbers)
-        Write-Host "Found $($Addresses.Where({$_.NumberOfVoiceUsers -le 0 -and $_.NumberOfTelephoneNumbers -le 0}).Count)"
+        Write-Verbose "Found $($Addresses.Where({$_.NumberOfVoiceUsers -le 0 -and $_.NumberOfTelephoneNumbers -le 0}).Count)"
 
-        Write-Host "Getting Current Locations: " -NoNewline
+        Write-Verbose "Getting Current Locations: "
         $Locations = @(Get-CsOnlineLisLocation).Where({ $Location = $_; $addr = $Addresses.Where({ $_.CivicAddressId -eq $Location.CivicAddressId -and $Location.LocationId -ne $_.DefaultLocationId }); $null -ne $addr -and $addr.Count -gt 0 })
-        Write-Host "Found $($Locations.Count)"
+        Write-Verbose "Found $($Locations.Count)"
 
-        Write-Host
+        Write-Verbose ""
 
         $TotalRemoved = 0
     }
@@ -807,54 +807,54 @@ function Remove-CsOnlineLisConfiguration {
             $NetworkObjectsRemaining = 0
             if ($Subnets.Count -gt 0) {
                 $PreCount = $Subnets.Count
-                Write-Host "Removing $($Subnets.Count) Subnets"
+                Write-Verbose "Removing $($Subnets.Count) Subnets"
                 $Subnets | Remove-CsOnlineLisSubnetParallel @PSBoundParameters
-                Write-Host "Checking For Remaining Subnets... " -NoNewline
+                Write-Verbose "Checking For Remaining Subnets... "
                 $Subnets = @(Get-CsOnlineLisSubnet).Where({ $_.Subnet })
                 if ($Subnets.Count -gt 0) {
-                    Write-Host "Found $($Subnets.Count) Further processing required..."
+                    Write-Verbose "Found $($Subnets.Count) Further processing required..."
                 }
-                Write-Host
+                Write-Verbose ""
                 $NetworkObjectsRemaining += $Subnets.Count
                 $TotalRemoved += ($PreCount - $Subnets.Count)
             }
             if ($Switches.Count -gt 0) {
                 $PreCount = $Switches.Count
-                Write-Host "Removing $($Switches.Count) Switches"
+                Write-Verbose "Removing $($Switches.Count) Switches"
                 $Switches | Remove-CsOnlineLisSwitchParallel @PSBoundParameters
-                Write-Host "Checking For Remaining Switches... " -NoNewline
+                Write-Verbose "Checking For Remaining Switches... "
                 $Switches = @(Get-CsOnlineLisSwitch).Where({ $_.ChassisId })
                 if ($Switches.Count -gt 0) {
-                    Write-Host "Found $($Switches.Count) Further processing required..."
+                    Write-Verbose "Found $($Switches.Count) Further processing required..."
                 }
-                Write-Host
+                Write-Verbose ""
                 $NetworkObjectsRemaining += $Switches.Count
                 $TotalRemoved += ($PreCount - $Switches.Count)
             }
             if ($Ports.Count -gt 0) {
                 $PreCount = $Ports.Count
-                Write-Host "Removing $($Ports.Count) Ports"
+                Write-Verbose "Removing $($Ports.Count) Ports"
                 $Ports | Remove-CsOnlineLisPortParallel @PSBoundParameters
-                Write-Host "Checking For Remaining Ports... " -NoNewline
+                Write-Verbose "Checking For Remaining Ports... "
                 $Ports = @(Get-CsOnlineLisPort).Where({ $_.ChassisId -and $_.PortId })
                 if ($Ports.Count -gt 0) {
-                    Write-Host "Found $($Ports.Count) Further processing required..."
+                    Write-Verbose "Found $($Ports.Count) Further processing required..."
                 }
-                Write-Host
+                Write-Verbose ""
                 $NetworkObjectsRemaining += $Ports.Count
                 $TotalRemoved += ($PreCount - $Ports.Count)
             }
             if ($WirelessAccessPoints.Count -gt 0) {
                 $PreCount = $WirelessAccessPoints.Count
-                Write-Host "Removing $($WirelessAccessPoints.Count) Wireless Access Points"
+                Write-Verbose "Removing $($WirelessAccessPoints.Count) Wireless Access Points"
                 $WirelessAccessPoints | Remove-CsOnlineLisWirelessAccessPointParallel @PSBoundParameters
-                Write-Host "Checking For Remaining Wireless Access Points... " -NoNewline
+                Write-Verbose "Checking For Remaining Wireless Access Points... "
                 $WirelessAccessPoints = @(Get-CsOnlineLisWirelessAccessPoint).Where({ $_.Bssid })
                 $NetworkObjectsRemaining += $WirelessAccessPoints.Count
                 if ($WirelessAccessPoints.Count -gt 0) {
-                    Write-Host "Found $($WirelessAccessPoints.Count) Further processing required..."
+                    Write-Verbose "Found $($WirelessAccessPoints.Count) Further processing required..."
                 }
-                Write-Host
+                Write-Verbose ""
                 $NetworkObjectsRemaining += $WirelessAccessPoints.Count
                 $TotalRemoved += ($PreCount - $WirelessAccessPoints.Count)
             }
@@ -862,14 +862,14 @@ function Remove-CsOnlineLisConfiguration {
 
         while ($Locations.Count -gt 0) {
             $PreCount = $Locations.Count
-            Write-Host "Removing $($Locations.Count) Locations"
+            Write-Verbose "Removing $($Locations.Count) Locations"
             $Locations | Remove-CsOnlineLisLocationParallel @PSBoundParameters
-            Write-Host "Checking For Remaining Locations... " -NoNewline
+            Write-Verbose "Checking For Remaining Locations... "
             $Locations = @(Get-CsOnlineLisLocation).Where({ $Location = $_; $addr = $Addresses.Where({ $_.CivicAddressId -eq $Location.CivicAddressId -and $Location.LocationId -ne $_.DefaultLocationId }); $null -ne $addr -and $addr.Count -gt 0 })
             if ($Locations.Count -gt 0) {
-                Write-Host "Found $($Locations.Count) Further processing required..."
+                Write-Verbose "Found $($Locations.Count) Further processing required..."
             }
-            Write-Host
+            Write-Verbose ""
             $TotalRemoved += ($PreCount - $Locations.Count)
         }
 
@@ -877,25 +877,25 @@ function Remove-CsOnlineLisConfiguration {
         $PreCount = $Addresses.Count
         $Addresses = $Addresses.Where({ $_.NumberOfVoiceUsers -le 0 -and $_.NumberOfTelephoneNumbers -le 0 })
         if ($PreCount -gt $Addresses.Count) {
-            Write-Host "$($PreCount - $Addresses.Count) Civic Addresses have either Voice Users or Telephone Numbers assigned, they will be skipped..."
-            Write-Host
+            Write-Verbose "$($PreCount - $Addresses.Count) Civic Addresses have either Voice Users or Telephone Numbers assigned, they will be skipped..."
+            Write-Verbose ""
         }
         while ($Addresses.Count -gt 0) {
             $PreCount = $Addresses.Count
-            Write-Host "Removing $($Addresses.Count) Civic Addresses"
+            Write-Verbose "Removing $($Addresses.Count) Civic Addresses"
             $Addresses | Remove-CsOnlineLisCivicAddressParallel @PSBoundParameters
-            Write-Host "Checking For Remaining Civic Addresses... " -NoNewline
+            Write-Verbose "Checking For Remaining Civic Addresses... "
             $Addresses = @(Get-CsOnlineLisCivicAddress -PopulateNumberOfVoiceUsers -PopulateNumberOfTelephoneNumbers).Where({ $_.NumberOfVoiceUsers -le 0 -and $_.NumberOfTelephoneNumbers -le 0 })
             if ($Addresses.Count -gt 0) {
-                Write-Host "Found $($Addresses.Count) Further processing required..."
+                Write-Verbose "Found $($Addresses.Count) Further processing required..."
             }
-            Write-Host
+            Write-Verbose ""
             $TotalRemoved += ($PreCount - $Addresses.Count)
         }
 
         $SW.Stop()
-        Write-Host "Removed $($TotalRemoved) items in $($SW.Elapsed.TotalSeconds.ToString("F0"))s"
-        Write-Host
+        Write-Verbose "Removed $($TotalRemoved) items in $($SW.Elapsed.TotalSeconds.ToString("F0"))s"
+        Write-Verbose ""
     }
 }
 Export-ModuleMember -Function Remove-CsOnlineLisConfiguration

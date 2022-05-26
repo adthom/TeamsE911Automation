@@ -12,7 +12,14 @@ class E911NetworkObject {
     # override init to allow for pseudo constructor chaining
     hidden Init([string]$newType, [string]$newIdentifier, [string] $Description) {
         if ([string]::IsNullOrEmpty($newType)) { $newType = 'Unknown' }
-        $this.Init([NetworkObjectType]$newType, [NetworkObjectIdentifier]::new($newIdentifier), $Description)
+        try {
+            $NetworkObjectIdentifier = [NetworkObjectIdentifier]::new($newIdentifier)
+        }
+        catch {
+            $NetworkObjectIdentifier = [NetworkObjectIdentifier]::new()
+            [void]$this.Warning.Add([WarningType]::InvalidInput, "NetworkObjectIdentifier '$newIdentifier'")
+        }
+        $this.Init([NetworkObjectType]$newType, $NetworkObjectIdentifier, $Description)
     }
 
     hidden Init([NetworkObjectType]$type, [NetworkObjectIdentifier]$identifier, [string] $Description) {
@@ -53,6 +60,7 @@ class E911NetworkObject {
                     $NetworkObjectIdentifier = [NetworkObjectIdentifier]::new($NetworkObjectIdentifier)
                 }
                 catch {
+                    $NetworkObjectIdentifier = [NetworkObjectIdentifier]::new()
                     [void]$this.Warning.Add([WarningType]::InvalidInput, "NetworkObjectIdentifier '$NetworkObjectIdentifier'")
                 }
             }
@@ -106,6 +114,10 @@ class E911NetworkObject {
             return
         }
         $this.Init($obj, $ShouldValidate)
+    }
+
+    E911NetworkObject() {
+        $this.Init('Unknown','','')
     }
 
     [NetworkObjectType] $Type
@@ -199,8 +211,13 @@ class E911NetworkObject {
             $newIdentifier = if ([string]::IsNullOrEmpty($obj.Identifier)) { $newIdentifier } else { $obj.Identifier }
         }
         $newType = [NetworkObjectType]$newType
-        $newIdentifier = [NetworkObjectIdentifier]::new($newIdentifier)
-        $hash = [Hasher]::GetHash(("${newType}${newIdentifier}").ToLower())
+        try {
+            $newObjIdentifier = [NetworkObjectIdentifier]::new($newIdentifier)
+        }
+        catch {
+            $newObjIdentifier = [NetworkObjectIdentifier]::new()
+        }
+        $hash = [Hasher]::GetHash(("${newType}${newObjIdentifier}").ToLower())
         return $hash
     }
 
@@ -240,7 +257,7 @@ class E911NetworkObject {
                 [E911Location]::Equals($Value1, $Value2._location)
             }
             # if Value2 is online
-            else { 
+            else {
                 # cannot compare online network object to row on anything other than hash... or should we see if the online location exists (that would be expensive)
                 throw "(Value2 is online) cannot compare online network object to row network object effectively"
             }
@@ -272,7 +289,7 @@ class E911NetworkObject {
                 $Value1.LocationId -eq $Value2.Id.ToString()
             }
             # if Value2 is online
-            else { 
+            else {
                 $Value1.LocationId -eq $Value2.LocationId
             }
         }
