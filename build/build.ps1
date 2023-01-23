@@ -1,0 +1,577 @@
+using namespace System.Collections
+using namespace System.Collections.Generic
+using namespace System.Management.Automation
+using namespace System.Management.Automation.Language
+using namespace System.Text
+using namespace Microsoft.PowerShell.Commands
+
+[CmdletBinding()]
+param (
+    [Parameter()]
+    [ValidateSet('Debug','Release')]
+    [string]
+    $BuildType = 'Release',
+
+    [switch]
+    $Clean,
+
+    [string]
+    $ModuleRoot = '',
+
+    [switch]
+    $Nested
+)
+
+if ([string]::IsNullOrEmpty($ModuleRoot)) {
+    $ModuleRoot = (Get-Item $PSScriptRoot).Parent.FullName
+}
+
+$ModuleName = (Get-Item $ModuleRoot).Name
+Write-Host "Building $(if($Nested){'Nested '}else{''})Module '$ModuleName'..."
+$rootManifest = [IO.Path]::Combine($ModuleRoot, 'manifest.psd1')
+$srcModulesPath = [IO.Path]::Combine($ModuleRoot, 'modules')
+$srcAssembliesPath = [IO.Path]::Combine($ModuleRoot, 'assemblies')
+$srcPath = [IO.Path]::Combine($ModuleRoot, 'src')
+$binRoot = [IO.Path]::Combine($ModuleRoot, 'bin')
+$releaseRoot = [IO.Path]::Combine($binRoot, ($BuildType.ToLower()))
+$releasePath = [IO.Path]::Combine($releaseRoot, $ModuleName)
+$releaseModulesPath = [IO.Path]::Combine($releasePath, 'modules')
+$releaseAssembliesPath = [IO.Path]::Combine($releasePath, 'assemblies')
+$moduleManifest = [IO.Path]::Combine($releasePath, "$ModuleName.psd1")
+$moduleDefinition = [IO.Path]::Combine($releasePath, "$ModuleName.psm1")
+$bldMeta = [IO.Path]::Combine($binRoot, '.bldmeta.psd1')
+$zipPath = [IO.Path]::Combine($releaseRoot)
+
+# RootModule
+if (!(Test-Path $rootManifest)) {
+    Write-Warning "No root manifest found, please created one at $rootManifest"
+    Write-Warning 'You can do this with New-ModuleManifest'
+    Write-Warning 'Exiting...'
+    throw 'Build Failed'
+}
+
+$Manifest = Import-PowerShellDataFile $rootManifest
+$allFiles = Get-ChildItem -Path $srcPath -File -Recurse
+$buildFiles = Get-ChildItem $PSScriptRoot -File -Recurse
+$hashFiles = [List[string]]@($rootManifest)
+foreach ($file in $allFiles) { $null = $hashFiles.Add($file.FullName) }
+foreach ($file in $buildFiles) { $null = $hashFiles.Add($file.FullName) }
+
+# check to see what needs to be re-built
+$buildMetadata = Get-ChildItem -Path $bldMeta -ErrorAction SilentlyContinue
+if ($null -ne $buildMetadata) {
+    $buildHashes = Import-PowerShellDataFile -Path $buildMetadata.FullName -ErrorAction SilentlyContinue
+}
+if ($null -eq $buildHashes) {
+    $buildHashes = @{}
+}
+
+$buildVersionKey = "__BUILD_VERSION__"
+$buildNumberKey = "__BUILD_NUMBER__"
+if ($null -eq $buildHashes[$BuildType]) {
+    $buildHashes[$BuildType] = @{}
+}
+$lastVersion = $buildHashes[$BuildType][$buildVersionKey]
+$lastBuild = $buildHashes[$BuildType][$buildNumberKey]
+
+$rebuild = $Clean -or $null -eq $lastVersion -or $null -eq $lastBuild
+$hashFiles | ForEach-Object {
+    $fileHash = (Get-FileHash -Path $_ -Algorithm SHA256).Hash
+    $relPath = [IO.Path]::GetRelativePath($srcPath, $_)
+    $rebuild = $rebuild -or !$buildHashes[$BuildType].ContainsKey($relPath) -or $buildHashes[$BuildType][$relPath] -ne $fileHash
+    $buildHashes[$BuildType][$relPath] = $fileHash
+}
+
+$StringCompName = 'StringIEqualityComparer' + ([Guid]::NewGuid().ToString() -replace '-','')
+$StrCompDef = @"
+class $StringCompName : IEqualityComparer[string] {
+    [bool] Equals([string] `$x, [string] `$y) {
+        return `$x.Equals(`$y, [StringComparison]::OrdinalIgnoreCase)
+    }
+    
+    [int] GetHashCode([string] `$obj) {
+        return `$obj.GetHashCode()
+    }
+}
+"@
+. ([ScriptBlock]::Create($StrCompDef))
+$Comp = New-Object $StringCompName
+
+$RequiredModules = [HashSet[ModuleSpecification]]::new()
+$NestedModulesString = [HashSet[string]]@($Comp)
+$NestedModules = [Dictionary[string,ModuleSpecification]]@{}
+$ModulesToCopy = [List[string]]@()
+if ((Test-Path $srcModulesPath)) {
+    Write-Host "Building nested modules..."
+    Get-ChildItem -Path $srcModulesPath -Directory | ForEach-Object {
+        $depModule = $_.BaseName
+        $depModulePath = $_.FullName
+        $buildCmd = "$depModulePath\build\build.ps1"
+        if (!(Test-Path $buildCmd)) {
+            $buildCmd = "$PSScriptRoot\build.ps1"
+        }
+        $updated = & $buildCmd -BuildType $BuildType -Clean:$Clean -ModuleRoot $depModulePath -Nested
+        $rebuild = $rebuild -or $update
+        $builtPath = $depModulePath + '\bin\' + $BuildType +'\' + $depModule
+        $depManifestPath = [IO.Path]::Combine($builtPath, "$depModule.psd1")
+        $depManifest = Import-PowerShellDataFile -Path $depManifestPath
+        # store the path to replace in the manifest
+
+        $relativeTarget = [IO.Path]::GetRelativePath($releasePath, $releaseModulesPath)
+        $depModule = '.\' + [IO.Path]::Combine([IO.Path]::Combine($relativeTarget, $depModule), "$depModule.psd1")
+
+        $null = $NestedModulesString.Add($_.BaseName)
+        $null = $NestedModulesString.Add($depModule)
+        $NestedModules[$depModule] = [ModuleSpecification]@{
+            ModuleName = $depModule
+            GUID = $depManifest.Guid
+            RequiredVersion = $depManifest.ModuleVersion
+        }
+        $null = $RequiredModules.Add($NestedModules[$depModule])
+        $null = $ModulesToCopy.Add($builtPath)
+    }
+}
+
+$RequiredAssemblies = [HashSet[string]]::new($Comp)
+$NestedAssemblies = [Dictionary[string,string]]@{}
+$AssembliesToCopy = [List[string]]@()
+if ((Test-Path $srcAssembliesPath)) {
+    Get-ChildItem -Path $srcAssembliesPath -File -Recurse | ForEach-Object {
+        $relPath = [IO.Path]::GetRelativePath($srcAssembliesPath, $_.FullName)
+        $NestedAssemblies[$_.BaseName] = $relPath
+        $null = $AssembliesToCopy.Add($_.FullName)
+        $RequiredAssemblies.Add($relPath)
+    }
+}
+
+if (!$rebuild) {
+    Write-Host "No build needed..."
+    if ($Nested) {
+        return $false
+    }
+    return
+}
+
+foreach ($buildFile in $buildFiles) {
+    if (($ext=[IO.Path]::GetExtension($buildFile)) -notin @('.ps1', '.psm1', '.psd1')) { continue }
+    if ([IO.Path]::GetFileName($buildFile) -eq 'build.ps1' -and [IO.Path]::GetDirectoryName($buildFile) -eq $PSScriptRoot) { continue }
+    if ($ext -eq '.psd1') {
+        $name = [IO.Path]::GetFileNameWithoutExtension($buildFile)
+        if ((Get-Module -Name $name)) {
+            $null = Remove-Module -Name $name
+        }
+        $null = Import-Module $buildFile
+        continue
+    }
+    if ($ext -eq '.psm1') {
+        $psd1 = $buildFile -replace '\.psm1$', '.psd1'
+        if ((Test-Path $psd1)) {
+            continue
+        }
+        $name = [IO.Path]::GetFileNameWithoutExtension($buildFile)
+        if ((Get-Module -Name $name)) {
+            $null = Remove-Module -Name $name
+        }
+        $null = Import-Module $buildFile
+    }
+    $parent = [IO.Path]::GetDirectoryName($buildFile)
+    $parentName = $parent.Split([IO.Path]::DirectorySeparatorChar)[-1]
+    if ((Test-Path ([IO.Path]::Combine($parent, "$parentName.psd1"))) -or (Test-Path ([IO.Path]::Combine($parent, "$parentName.psm1")))) {
+        continue
+    }
+    $null = . $buildFile
+}
+
+$Manifest.RootModule = [IO.Path]::GetRelativePath($releasePath, $moduleDefinition)
+$CurrentManifestVersion = $Manifest.ModuleVersion.Split('.')
+if ($null -eq $lastVersion) { $lastVersion = '0.0' }
+$lastVersion = $lastVersion.Split('.')
+$lastBuild = [int]$lastBuild
+$BuildDay = '{0:yy}{1:000}' -f [DateTime]::UtcNow, [DateTime]::UtcNow.DayOfYear
+$sameVersion = $CurrentManifestVersion[0] -eq $lastVersion[0] -and $CurrentManifestVersion[1] -eq $lastVersion[1] -and $BuildDay -eq $lastVersion[2]
+if (!$sameVersion) {
+    $lastBuild = -1
+}
+$buildHashes[$BuildType][$buildVersionKey] = '{0}.{1}.{2}' -f ($CurrentManifestVersion[0,1] + $BuildDay)
+$buildHashes[$BuildType][$buildNumberKey] = ++$lastBuild
+$Manifest.ModuleVersion = '{0}.{1}{2}' -f $buildHashes[$BuildType][$buildVersionKey],$buildHashes[$BuildType][$buildNumberKey],"$(if($BuildType -eq 'Debug'){'-dev'}else{''})"
+
+# Requires statements must be unique and preceed all
+$PowerShellVersion = $null
+$CompatiblePSEditions = [HashSet[string]]::new([string[]]@('Desktop','Core'),$Comp)
+
+# using statements must be unique and first non-commented statements
+$usingStatements = [HashSet[string]]::new($Comp)
+# class definitions must be unique, but can appear anywhere, need to order them for loading in Windows PowerShell
+$typeDeclarations = [HashSet[string]]::new($Comp)
+$OtherDefinitions = [List[string]]@()
+$OtherFiles = [HashSet[string]]@()
+
+$publicFunctions = [HashSet[string]]::new($Comp)
+$privateFunctions = [HashSet[string]]::new($Comp)
+$publicClasses = [HashSet[string]]::new($Comp)
+
+$moduleBodySb = [StringBuilder]::new()
+foreach ($file in $allFiles) {
+    $relName = [IO.Path]::GetRelativePath($srcPath, $file.FullName)
+    if ($file.Extension -ne '.ps1') {
+        if ($file.Extension -in @('.psd1','.psm1')) {
+            Write-Warning "Directly Copying ${relName}..."
+            $null = $OtherFiles.Add($file.FullName)
+            continue
+        }
+        Write-Warning "Skipping processing ${relName}..."
+        continue
+    }
+    $isPublic = $relName.TrimStart('.').TrimStart([IO.Path]::DirectorySeparatorChar).StartsWith('public')
+    $content = [IO.File]::ReadAllText($file.FullName)
+    $parseerrors = $null
+    $ast = [Parser]::ParseInput($content, [ref]$null, [ref] $parseerrors)
+    
+    if ($parseerrors.Count -gt 0) {
+        if ($parseerrors.Where({$_.ErrorId -eq 'TypeNotFound'}).Count -ne $parseerrors.Count) {
+            Write-Warning "Could not parse '$relname'"
+            foreach ($e in $parseerrors) {
+                $msg = '[{0}] ''{1}...'': {2}' -f $e.Extent.StartLineNumber, $e.Extent.Text.Substring(0,[Math]::Min($e.Extent.Text.Length,20)), $e.Message
+                Write-Warning $msg
+                Write-Host ($e | ConvertTo-Json -Depth 10 -Compress)
+            }
+            Write-Warning 'Exiting...'
+            throw 'Build Failed'
+        }
+        # Write-Warning "Only dependency issues found, Attempting to continue..."
+        # $DependentTypes = $parseerrors.Where({$_.ErrorId -eq 'TypeNotFound'}).ForEach({$_.Extent.Text}) | Sort-Object -Unique
+        # Write-Warning "Dependency Errors in ${relName}:"
+        # foreach ($dependency in $DependentTypes) {
+        #     Write-Warning "    [$dependency]"
+        # }
+    }
+    if ($null -ne $ast.BeginBlock -or $null -ne $ast.ProcessBlock -or $null -ne $ast.ParamBlock -or $null -ne $ast.DynamicParamBlock -or $null -ne $ast.CleanBlock) {
+        Write-Warning "${relName}: Invalid PS Module File Type, only EndBlock is supported"
+        Write-Warning 'Exiting...'
+        throw 'Build Failed'
+    }
+    if ($null -ne $ast.ScriptRequirements) {
+        if (![string]::IsNullOrEmpty($ast.RequiredApplicationId)) {
+            Write-Warning "${relName}: '#Requires -ApplicationId' not supported"
+            Write-Warning 'Exiting...'
+            throw 'Build Failed'
+        }
+        if ($ast.RequiresPSSnapIns.Count -gt 0) {
+            Write-Warning "${relName}: '#Requires -PSSnapIn' not supported"
+            Write-Warning 'Exiting...'
+            throw 'Build Failed'
+        }
+        if ($ast.ScriptRequirements.IsElevationRequired -eq $true) {
+            Write-Warning "${relName}: '#Requires -RunAs' not supported"
+            Write-Warning 'Exiting...'
+            throw 'Build Failed'
+        }
+        foreach ($module in $ast.ScriptRequirements.RequiredModules) {
+            $name = [IO.Path]::GetDirectoryName($module.Name)
+            $filename = [IO.Path]::GetFileNameWithoutExtension($module.Name)
+            if ([string]::IsNullOrEmpty($name)) {
+                $name = $filename
+            }
+            if ($NestedModules.ContainsKey($name) -or $NestedModulesString.Contains($name)) {
+                continue
+            }
+            $null = $RequiredModules.Add($module)
+        }
+        foreach ($assembly in $ast.ScriptRequirements.RequiredAssemblies) {
+            $assemblyName = [IO.Path]::GetFileNameWithoutExtension($assembly)
+            if ($NestedAssemblies.ContainsKey($assemblyName)) {
+                continue
+            }
+            $null = $RequiredAssemblies.Add($assembly)
+        }
+        if ($ast.ScriptRequirements.RequiredPSEditions.Count -gt 0 -and $ast.ScriptRequirements.RequiredPSEditions.Count -lt $CompatiblePSEditions) {
+            $null = $CompatiblePSEditions.IntersectWith($ast.ScriptRequirements.RequiredPSEditions)
+            if ($CompatiblePSEditions.Count -eq 0) {
+                Write-Warning "${relName}: '#Requires -PSEdition' in conflict with other requirements"
+                Write-Warning 'Exiting...'
+                throw 'Build Failed'
+            }
+        }
+        if ($null -ne $ast.ScriptRequirements.RequiredPSVersion) {
+            if ($null -eq $PowerShellVersion -or $ast.ScriptRequirements.RequiredPSVersion -gt $PowerShellVersion) {
+                $PowerShellVersion = $ast.ScriptRequirements.RequiredPSVersion
+            }
+        }
+    }
+    foreach ($using in $ast.UsingStatements) {
+        $name = $using.Name.Value
+        if ($null -ne $name -and $using.UsingStatementKind -ne [UsingStatementKind]::Namespace) {
+            if ($name.IndexOf('\') -gt -1 -or $name.IndexOf('/') -gt -1) {
+                # resolve relative path
+                $name = [IO.Path]::GetFullPath([IO.Path]::Combine([IO.Path]::GetDirectoryName($file.FullName),$name))
+            }
+            $relToAssemblies = [IO.Path]::GetRelativePath($srcAssembliesPath, $name)
+            $relToModules = [IO.Path]::GetRelativePath($srcModulesPath, $name)
+            if ($relToAssemblies.Length -lt $relToModules.Length) {
+                $parent = [IO.Path]::GetDirectoryName($name)
+                $fileName = [IO.Path]::GetFileName($name)
+                $relative = [IO.Path]::GetRelativePath($srcAssembliesPath, $parent)
+                $newPath = [IO.Path]::GetRelativePath($releasePath,[IO.Path]::Combine($releaseAssembliesPath, $relative))
+                $name = '.\' + [IO.Path]::Combine($newPath, $fileName)
+            }
+            else {
+                $fileName = [IO.Path]::GetFileNameWithoutExtension($name)
+                $relativeTarget = [IO.Path]::GetRelativePath($releasePath, $releaseModulesPath)
+                $name = '.\' + [IO.Path]::Combine([IO.Path]::Combine($relativeTarget, $fileName), "$fileName.psd1")
+            }
+            if ($using.UsingStatementKind -eq [UsingStatementKind]::Module) {
+                $mName = [IO.Path]::GetFileNameWithoutExtension($name)
+                if (!$NestedModulesString.Contains($mName)) {
+                    Write-Warning "${relName}: Nested Module '$mName' not found"
+                }
+            }
+        }
+        elseif ($using.UsingStatementKind -eq [UsingStatementKind]::Module) {
+            $spec = [ScriptBlock]::Create($using.ModuleSpecification.Extent.Text).Invoke()
+            if ($NestedModules.ContainsKey($spec.ModuleName)) {
+                $spec = $NestedModules[$spec.ModuleName]
+            }
+            $moduleSb = [StringBuilder]::new()
+            ItemToString $spec -sb $moduleSb -Compress
+            $name = $moduleSb.ToString()
+            $spec = [ScriptBlock]::Create($name).Invoke()
+            if (!$NestedModules.ContainsKey($spec.Name)) {
+                $null = $RequiredModules.Add($spec)
+                $NestedModules[$spec.Name] = $spec
+            }
+        }
+        if ($using.UsingStatementKind -eq [UsingStatementKind]::Assembly) {
+            if (!$RequiredAssemblies.Contains([IO.Path]::GetFileNameWithoutExtension($name))) {
+                $null = $RequiredAssemblies.Add($name)
+            }
+        }
+        if ($null -eq $name) {
+            Write-Warning "${relName}: Unable to parse using statement: $($using.Extent.Text)"
+            Write-Warning 'Exiting...'
+            throw 'Build Failed'
+        }
+        $stmt = 'using {0} {1}' -f $using.UsingStatementKind.ToString().ToLower(), $name
+        $null = $usingStatements.Add($stmt)
+    }
+    foreach ($statement in $ast.EndBlock.Statements) {
+        if ($statement -is [TypeDefinitionAst]) {
+            $null = $typeDeclarations.Add($statement.Extent.Text.Trim())
+            if ($statement.IsClass -and $isPublic) {
+                $null = $publicClasses.Add($statement.Name)
+            }
+            continue
+        }
+        $OtherDefinitions.Add($statement.Extent.Text.Trim())
+        if ($statement -is [FunctionDefinitionAst] -and $isPublic) {
+            $null = $publicFunctions.Add($statement.Name)
+        }
+        elseif ($statement -is [FunctionDefinitionAst]) {
+            $null = $privateFunctions.Add($statement.Name)
+        }
+    }
+}
+
+$first = $true
+foreach ($using in $usingStatements) {
+    $null = $moduleBodySb.AppendLine($using)
+    $first = $false
+}
+if (!$first) { $null = $moduleBodySb.AppendLine() }
+
+#TODO: order our type declarations to avoid issues in WindowsPowerShell...
+$first = $true
+foreach ($typeDec in $typeDeclarations) {
+    if (!$first) { $null = $moduleBodySb.AppendLine() }
+    $null = $moduleBodySb.AppendLine($typeDec)
+    $first = $false
+}
+if (!$first) { $null = $moduleBodySb.AppendLine() }
+
+$first = $true
+foreach ($statement in $OtherDefinitions) {
+    if (!$first) { $null = $moduleBodySb.AppendLine() }
+    $null = $moduleBodySb.AppendLine($statement)
+    $first = $false
+}
+if (!$first) { $null = $moduleBodySb.AppendLine() }
+
+if ($BuildType -eq 'Debug') {
+    foreach ($private in $privateFunctions) {
+        $null = $publicFunctions.Add($private)
+    }
+}
+$Manifest.FunctionsToExport = [string[]]$publicFunctions
+
+foreach ($required in $Manifest.RequiredModules) {
+    $null = $RequiredModules.Add($required)
+}
+
+$specHashes = [List[object]]@()
+foreach ($spec in $RequiredModules) {
+    $hash = @{ModuleName = $spec.Name}
+    $hashValid = $false
+    if ($null -ne $spec.Guid) {
+        $hash['Guid'] = $spec.Guid.ToString()
+    }
+    if ($null -ne $spec.Version) {
+        $hashValid = $true
+        $hash['ModuleVersion'] = $spec.Version.ToString()
+    }
+    if ($null -ne $spec.MaximumVersion) {
+        $hashValid = $true
+        $hash['MaximumVersion'] = $spec.MaximumVersion.ToString()
+    }
+    if ($null -ne $spec.RequiredVersion) {
+        $hashValid = $true
+        $hash['RequiredVersion'] = $spec.RequiredVersion.ToString()
+    }
+    if(!$hashValid) {
+        $hash = $hash['ModuleName']
+    }
+    $specHashes.Add($hash)
+}
+$Manifest.RequiredModules = $specHashes
+
+foreach ($required in $Manifest.RequiredAssemblies) {
+    $null = $RequiredAssemblies.Add($required)
+}
+$Manifest.RequiredAssemblies = [string[]]$RequiredAssemblies
+if ($Manifest.CompatiblePSEditions.Count -gt $CompatiblePSEditions.Count) {
+    $Manifest.CompatiblePSEditions = [string[]]$CompatiblePSEditions
+}
+if ($null -ne $PowerShellVersion -and ($null -eq $Manifest.PowerShellVersion -or $PowerShellVersion -gt [version]$Manifest.PowerShellVersion)) {
+    $Manifest.PowerShellVersion = $PowerShellVersion.ToString()
+}
+if ($null -eq $Manifest.CmdletsToExport) { $Manifest.CmdletsToExport = @() }
+if ($null -eq $Manifest.VariablesToExport) { $Manifest.VariablesToExport = @() }
+if ($null -eq $Manifest.AliasesToExport) { $Manifest.AliasesToExport = @() }
+
+# clean the release folder
+if ((Test-Path $releasePath)) {
+    $null = Remove-Item -Path $releasePath -Recurse -Force -Confirm:$false -ErrorAction Stop
+}
+
+$null = New-Item -Path $releasePath -ItemType Directory -Force -ErrorAction Stop
+$null = Set-Content -Path $moduleDefinition -Value ($moduleBodySb.ToString()) -ErrorAction Stop
+
+$entrySb = [StringBuilder]::new()
+$null = ItemToString $Manifest -sb $entrySb
+$null = New-Item -Path $moduleManifest -ItemType File -Force
+$null = Set-Content -Path $moduleManifest -Value ($entrySb.ToString())
+
+# Copy Modules, Assemblies, and OtherFiles to the release directory
+foreach ($file in $OtherFiles) {
+    $relToRelease = [IO.Path]::GetRelativePath($srcPath, $file)
+    $newPath = [IO.Path]::Combine($releasePath, $relToRelease)
+    $null = Copy-Item -Path $file -Destination $newPath -Force -ErrorAction Stop
+}
+foreach ($assembly in $AssembliesToCopy) {
+    $targetFolder = [IO.Path]::GetRelativePath($ModuleRoot, $srcAssembliesPath)
+    $rel = [IO.Path]::GetRelativePath($srcAssembliesPath, $assembly)
+    $newDirectory = [IO.Path]::Combine($releasePath, $targetFolder)
+    $newPath = [IO.Path]::Combine($newDirectory, $rel)
+    $null = Copy-Item -Path $assembly -Destination $newPath -Force -ErrorAction Stop
+}
+foreach ($module in $ModulesToCopy) {
+    # $releaseModulesPath
+    $currentModule = [IO.Path]::GetFileNameWithoutExtension($module)
+    $currentDir = [IO.Path]::Combine([IO.Path]::GetDirectoryName($module), $currentModule)
+    $newPath = [IO.Path]::Combine($releaseModulesPath, $currentModule)
+    Write-Host "'$currentDir' -> '$newPath'"
+    $null = Copy-Item -Path $currentDir -Recurse -Destination $newPath -Force -ErrorAction Stop
+}
+
+$CurrentPublicFunctions = $publicFunctions.Count
+if ((Get-Module -Name $ModuleName)) {
+    $null = Remove-Module -Name $ModuleName -Force -ErrorAction Stop
+}
+$TempModule = Import-Module $releasePath -PassThru
+# Generate Proxy Functions to load into module state after classes are declared
+$ModuleAssembly = & $TempModule { [AppDomain]::CurrentDomain.GetAssemblies().Where({$_.GetCustomAttributes($false).Where({$_.TypeId -eq [Management.Automation.DynamicClassImplementationAssemblyAttribute] -and $null -eq $_.ScriptFile}).Count -gt 0}) | 
+    Sort-Object -Property {[Version]($_.FullName -replace '^.*Version=([^,]+),.*$','$1')} -Descending | Select-Object -First 1 }
+
+$first = $true
+foreach ($cmdlet in $ModuleAssembly.ExportedTypes) {
+    $type = $cmdlet
+    while ($type -ne [Cmdlet] -and $null -ne $type.BaseType) { $type = $type.BaseType }
+    # Not a cmdlet:
+    if ($type -ne [Cmdlet]) { continue }
+    $CmdletAttrib = $cmdlet.GetCustomAttributes(([CmdletAttribute]),$true)
+    if ($null -eq $CmdletAttrib) { Write-Warning "$($cmdlet.FullName) has no CmdletAttribute"; continue }
+    $Verb = $CmdletAttrib.VerbName
+    $Noun = $CmdletAttrib.NounName
+    if ([string]::IsNullOrEmpty($Verb) -or [string]::IsNullOrEmpty($Noun)) {
+        Write-Warning "$($cmdlet.FullName) has an invalid name: '$Verb-$Noun'"
+        continue
+    }
+    $funcName = "$Verb-$Noun"
+    if ($publicClasses.Contains($cmdlet.FullName)) {
+        $null = $publicFunctions.Add($funcName)
+    }
+    else {
+        $null = $privateFunctions.Add($funcName)
+    }
+    $Body = [ProxyCommand]::Create([CommandMetadata]::new($cmdlet))
+    $Replacement = "`$ExecutionContext.InvokeCommand.GetCmdletByTypeName('$($cmdlet.FullName)')"
+    $Definition = @"
+function $funcName {
+    $(($Body -split "`r?`n") -join ([Environment]::NewLine + "    "))
+}
+"@ -replace '\$ExecutionContext\.InvokeCommand\.GetCommand\([^\)]+\)(?=\s*(\r?\n|\$))', $Replacement
+
+    # # import proxy into module state
+    # . ([ScriptBlock]::Create($Definition))
+
+    if (!$first) { $null = $moduleBodySb.AppendLine() }
+    $null = $moduleBodySb.AppendLine()
+    $null = $moduleBodySb.Append('# Proxy Function Definition for ')
+    $null = $moduleBodySb.Append($funcName)
+    $null = $moduleBodySb.Append(' declared in Type [')
+    $null = $moduleBodySb.Append($cmdlet.FullName)
+    $null = $moduleBodySb.AppendLine(']')
+    $null = $moduleBodySb.AppendLine($Definition)
+    $first = $false
+}
+if (!$first) { $null = $moduleBodySb.AppendLine() }
+
+$null = $TempModule | Remove-Module
+
+if ($BuildType -eq 'Debug') {
+    foreach ($private in $privateFunctions) {
+        $null = $publicFunctions.Add($private)
+    }
+}
+
+if ($CurrentPublicFunctions -lt $publicFunctions.Count) {
+    # Update the Module Definition
+    $null = Set-Content -Path $moduleDefinition -Value ($moduleBodySb.ToString()) -ErrorAction Stop
+
+    # Update Manifest Again w/ any new functions
+    $Manifest.FunctionsToExport = [string[]]$publicFunctions
+    $null = Set-Content -Path $moduleDefinition -Value ($moduleBodySb.ToString()) -ErrorAction Stop
+    
+    $entrySb = [StringBuilder]::new()
+    $null = ItemToString $Manifest -sb $entrySb
+    $null = New-Item -Path $moduleManifest -ItemType File -Force
+    $null = Set-Content -Path $moduleManifest -Value ($entrySb.ToString())
+}
+
+# Save file hashes to bld metadata on successful build
+$null = New-Item -Path $bldMeta -ItemType File -Force
+
+$null = $entrySb.Clear()
+$null = ItemToString $buildHashes -sb $entrySb
+$null = New-Item -Path $bldMeta -ItemType File -Force
+$null = Set-Content -Path $bldMeta -Value ($entrySb.ToString())
+
+if ($BuildType -eq 'Release') {
+    $Files = Get-ChildItem -Path $releasePath | Select-Object -ExpandProperty FullName
+    $null = Compress-Archive -Path $Files -DestinationPath ([IO.Path]::Combine($zipPath, "$ModuleName.zip")) -CompressionLevel Optimal -Force
+}
+
+Write-Host "Done building '$ModuleName' module."
+if ($Nested) {
+    return $false
+}
+return

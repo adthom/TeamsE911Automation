@@ -1,0 +1,3 @@
+[submodule "modules/TeamsE911Internal"]
+	path = modules/TeamsE911Internal
+	url = https://github.com/adthom/TeamsE911Internal.git
