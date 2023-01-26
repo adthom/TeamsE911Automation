@@ -8,7 +8,7 @@ using namespace Microsoft.PowerShell.Commands
 [CmdletBinding()]
 param (
     [Parameter()]
-    [ValidateSet('Debug','Release')]
+    [ValidateSet('Debug', 'Release')]
     [string]
     $BuildType = 'Release',
 
@@ -41,6 +41,7 @@ $moduleManifest = [IO.Path]::Combine($releasePath, "$ModuleName.psd1")
 $moduleDefinition = [IO.Path]::Combine($releasePath, "$ModuleName.psm1")
 $bldMeta = [IO.Path]::Combine($binRoot, '.bldmeta.psd1')
 $zipPath = [IO.Path]::Combine($releaseRoot)
+$formattingRulesPath = [IO.Path]::Combine($ModuleRoot, 'PSScriptAnalyzerFormattingRules.psd1')
 
 # RootModule
 if (!(Test-Path $rootManifest)) {
@@ -66,8 +67,8 @@ if ($null -eq $buildHashes) {
     $buildHashes = @{}
 }
 
-$buildVersionKey = "__BUILD_VERSION__"
-$buildNumberKey = "__BUILD_NUMBER__"
+$buildVersionKey = '__BUILD_VERSION__'
+$buildNumberKey = '__BUILD_NUMBER__'
 if ($null -eq $buildHashes[$BuildType]) {
     $buildHashes[$BuildType] = @{}
 }
@@ -75,14 +76,22 @@ $lastVersion = $buildHashes[$BuildType][$buildVersionKey]
 $lastBuild = $buildHashes[$BuildType][$buildNumberKey]
 
 $rebuild = $Clean -or $null -eq $lastVersion -or $null -eq $lastBuild
+$uncheckedFiles = [HashSet[string]]@([string[]]($buildHashes[$BuildType].Keys))
+$null = $uncheckedFiles.Remove($buildVersionKey)
+$null = $uncheckedFiles.Remove($buildNumberKey)
 $hashFiles | ForEach-Object {
-    $fileHash = (Get-FileHash -Path $_ -Algorithm SHA256).Hash
+    $fileHash = (Get-FileHash -Path $_ -Algorithm SHA1).Hash
     $relPath = [IO.Path]::GetRelativePath($srcPath, $_)
     $rebuild = $rebuild -or !$buildHashes[$BuildType].ContainsKey($relPath) -or $buildHashes[$BuildType][$relPath] -ne $fileHash
     $buildHashes[$BuildType][$relPath] = $fileHash
+    $null = $uncheckedFiles.Remove($relPath)
+}
+if ($uncheckedFiles.Count -gt 0) {
+    $rebuild = $true
+    $uncheckedFiles | ForEach-Object { $null = $buildHashes[$BuildType].Remove($_) }
 }
 
-$StringCompName = 'StringIEqualityComparer' + ([Guid]::NewGuid().ToString() -replace '-','')
+$StringCompName = 'StringIEqualityComparer' + ([Guid]::NewGuid().ToString() -replace '-', '')
 $StrCompDef = @"
 class $StringCompName : IEqualityComparer[string] {
     [bool] Equals([string] `$x, [string] `$y) {
@@ -99,10 +108,10 @@ $Comp = New-Object $StringCompName
 
 $RequiredModules = [HashSet[ModuleSpecification]]::new()
 $NestedModulesString = [HashSet[string]]@($Comp)
-$NestedModules = [Dictionary[string,ModuleSpecification]]@{}
+$NestedModules = [Dictionary[string, ModuleSpecification]]@{}
 $ModulesToCopy = [List[string]]@()
 if ((Test-Path $srcModulesPath)) {
-    Write-Host "Building nested modules..."
+    Write-Host 'Building nested modules...'
     Get-ChildItem -Path $srcModulesPath -Directory | ForEach-Object {
         $depModule = $_.BaseName
         $depModulePath = $_.FullName
@@ -111,29 +120,21 @@ if ((Test-Path $srcModulesPath)) {
             $buildCmd = "$PSScriptRoot\build.ps1"
         }
         $updated = & $buildCmd -BuildType $BuildType -Clean:$Clean -ModuleRoot $depModulePath -Nested
-        $rebuild = $rebuild -or $update
-        $builtPath = $depModulePath + '\bin\' + $BuildType +'\' + $depModule
-        $depManifestPath = [IO.Path]::Combine($builtPath, "$depModule.psd1")
-        $depManifest = Import-PowerShellDataFile -Path $depManifestPath
+        $rebuild = $rebuild -or $updated
+        $builtPath = $depModulePath + '\bin\' + $BuildType + '\' + $depModule
         # store the path to replace in the manifest
-
         $relativeTarget = [IO.Path]::GetRelativePath($releasePath, $releaseModulesPath)
-        $depModule = '.\' + [IO.Path]::Combine([IO.Path]::Combine($relativeTarget, $depModule), "$depModule.psd1")
-
+        $depModule = [IO.Path]::Combine($relativeTarget, $depModule)
         $null = $NestedModulesString.Add($_.BaseName)
         $null = $NestedModulesString.Add($depModule)
-        $NestedModules[$depModule] = [ModuleSpecification]@{
-            ModuleName = $depModule
-            GUID = $depManifest.Guid
-            RequiredVersion = $depManifest.ModuleVersion
-        }
+        $NestedModules[$depModule] = [ModuleSpecification]$depModule
         $null = $RequiredModules.Add($NestedModules[$depModule])
         $null = $ModulesToCopy.Add($builtPath)
     }
 }
 
 $RequiredAssemblies = [HashSet[string]]::new($Comp)
-$NestedAssemblies = [Dictionary[string,string]]@{}
+$NestedAssemblies = [Dictionary[string, string]]@{}
 $AssembliesToCopy = [List[string]]@()
 if ((Test-Path $srcAssembliesPath)) {
     Get-ChildItem -Path $srcAssembliesPath -File -Recurse | ForEach-Object {
@@ -145,16 +146,24 @@ if ((Test-Path $srcAssembliesPath)) {
 }
 
 if (!$rebuild) {
-    Write-Host "No build needed..."
-    if ($Nested) {
-        return $false
-    }
+    Write-Host 'No build needed...'
+    if ($Nested) { return $false }
     return
 }
 
 foreach ($buildFile in $buildFiles) {
-    if (($ext=[IO.Path]::GetExtension($buildFile)) -notin @('.ps1', '.psm1', '.psd1')) { continue }
+    if (($ext = [IO.Path]::GetExtension($buildFile)) -notin @('.ps1', '.psm1', '.psd1')) { continue }
     if ([IO.Path]::GetFileName($buildFile) -eq 'build.ps1' -and [IO.Path]::GetDirectoryName($buildFile) -eq $PSScriptRoot) { continue }
+    if ((Test-Path -Path $formattingRulesPath)) {
+        $originalText = [IO.File]::ReadAllText($buildFile.FullName) -replace '(\r?\n)+$', ''
+        $newText = Invoke-Formatter -ScriptDefinition $originalText -Settings $formattingRulesPath
+        if ($newText -ne $originalText) {
+            if ([string]::IsNullOrWhiteSpace($newText)) {
+                throw 'Formatter returned empty text'
+            }
+            [IO.File]::WriteAllText($buildFile.FullName, $newText)
+        }
+    }
     if ($ext -eq '.psd1') {
         $name = [IO.Path]::GetFileNameWithoutExtension($buildFile)
         if ((Get-Module -Name $name)) {
@@ -172,14 +181,25 @@ foreach ($buildFile in $buildFiles) {
         if ((Get-Module -Name $name)) {
             $null = Remove-Module -Name $name
         }
-        $null = Import-Module $buildFile
+        $null = Import-Module $buildFile.FullName
     }
-    $parent = [IO.Path]::GetDirectoryName($buildFile)
-    $parentName = $parent.Split([IO.Path]::DirectorySeparatorChar)[-1]
-    if ((Test-Path ([IO.Path]::Combine($parent, "$parentName.psd1"))) -or (Test-Path ([IO.Path]::Combine($parent, "$parentName.psm1")))) {
-        continue
+    
+    $rel = [IO.Path]::GetRelativePath($PSScriptRoot, $buildFile)
+    $parent = [IO.Path]::GetDirectoryName($rel)
+    $pathParts = $parent.Split([IO.Path]::DirectorySeparatorChar)
+    $i = $pathParts.Length - 1
+    $shouldProcess = $true
+    while ($i -gt 0) {
+        $parent = $pathParts[0..$i] -join [IO.Path]::DirectorySeparatorChar
+        $parentName = $pathParts[$i]
+        if ((Test-Path ([IO.Path]::Combine($PSScriptRoot,[IO.Path]::Combine($parent, "$parentName.psd1")))) -or (Test-Path ([IO.Path]::Combine($PSScriptRoot,[IO.Path]::Combine($parent, "$parentName.psm1"))))) {
+            $shouldProcess = $false
+            break
+        }
     }
-    $null = . $buildFile
+    if ($shouldProcess) {
+        $null = . $buildFile
+    }
 }
 
 $Manifest.RootModule = [IO.Path]::GetRelativePath($releasePath, $moduleDefinition)
@@ -192,13 +212,13 @@ $sameVersion = $CurrentManifestVersion[0] -eq $lastVersion[0] -and $CurrentManif
 if (!$sameVersion) {
     $lastBuild = -1
 }
-$buildHashes[$BuildType][$buildVersionKey] = '{0}.{1}.{2}' -f ($CurrentManifestVersion[0,1] + $BuildDay)
+$buildHashes[$BuildType][$buildVersionKey] = '{0}.{1}.{2}' -f ($CurrentManifestVersion[0, 1] + $BuildDay)
 $buildHashes[$BuildType][$buildNumberKey] = ++$lastBuild
-$Manifest.ModuleVersion = '{0}.{1}{2}' -f $buildHashes[$BuildType][$buildVersionKey],$buildHashes[$BuildType][$buildNumberKey],"$(if($BuildType -eq 'Debug'){'-dev'}else{''})"
+$Manifest.ModuleVersion = '{0}.{1}' -f $buildHashes[$BuildType][$buildVersionKey], $buildHashes[$BuildType][$buildNumberKey]
 
 # Requires statements must be unique and preceed all
 $PowerShellVersion = $null
-$CompatiblePSEditions = [HashSet[string]]::new([string[]]@('Desktop','Core'),$Comp)
+$CompatiblePSEditions = [HashSet[string]]::new([string[]]@('Desktop', 'Core'), $Comp)
 
 # using statements must be unique and first non-commented statements
 $usingStatements = [HashSet[string]]::new($Comp)
@@ -215,7 +235,7 @@ $moduleBodySb = [StringBuilder]::new()
 foreach ($file in $allFiles) {
     $relName = [IO.Path]::GetRelativePath($srcPath, $file.FullName)
     if ($file.Extension -ne '.ps1') {
-        if ($file.Extension -in @('.psd1','.psm1')) {
+        if ($file.Extension -notin @('.psd1', '.psm1')) {
             Write-Warning "Directly Copying ${relName}..."
             $null = $OtherFiles.Add($file.FullName)
             continue
@@ -224,15 +244,15 @@ foreach ($file in $allFiles) {
         continue
     }
     $isPublic = $relName.TrimStart('.').TrimStart([IO.Path]::DirectorySeparatorChar).StartsWith('public')
-    $content = [IO.File]::ReadAllText($file.FullName)
+    $content = [IO.File]::ReadAllText($file.FullName) -replace '(\r?\n)+$', ''
     $parseerrors = $null
     $ast = [Parser]::ParseInput($content, [ref]$null, [ref] $parseerrors)
     
     if ($parseerrors.Count -gt 0) {
-        if ($parseerrors.Where({$_.ErrorId -eq 'TypeNotFound'}).Count -ne $parseerrors.Count) {
+        if ($parseerrors.Where({ $_.ErrorId -eq 'TypeNotFound' }).Count -ne $parseerrors.Count) {
             Write-Warning "Could not parse '$relname'"
             foreach ($e in $parseerrors) {
-                $msg = '[{0}] ''{1}...'': {2}' -f $e.Extent.StartLineNumber, $e.Extent.Text.Substring(0,[Math]::Min($e.Extent.Text.Length,20)), $e.Message
+                $msg = '[{0}] ''{1}...'': {2}' -f $e.Extent.StartLineNumber, $e.Extent.Text.Substring(0, [Math]::Min($e.Extent.Text.Length, 20)), $e.Message
                 Write-Warning $msg
                 Write-Host ($e | ConvertTo-Json -Depth 10 -Compress)
             }
@@ -245,6 +265,17 @@ foreach ($file in $allFiles) {
         # foreach ($dependency in $DependentTypes) {
         #     Write-Warning "    [$dependency]"
         # }
+    }
+    if ((Test-Path -Path $formattingRulesPath)) {
+        $newText = Invoke-Formatter -ScriptDefinition $content -Settings $formattingRulesPath
+        if ($newText -ne $content) {
+            if ([string]::IsNullOrWhiteSpace($newText)) {
+                throw 'Formatter returned empty text'
+            }
+            Write-Warning "Formatting ${relName}..."
+            [IO.File]::WriteAllText($file.FullName, $newText)
+            $ast = [Parser]::ParseInput($newText, [ref]$null, [ref] $parseerrors)
+        }
     }
     if ($null -ne $ast.BeginBlock -or $null -ne $ast.ProcessBlock -or $null -ne $ast.ParamBlock -or $null -ne $ast.DynamicParamBlock -or $null -ne $ast.CleanBlock) {
         Write-Warning "${relName}: Invalid PS Module File Type, only EndBlock is supported"
@@ -304,7 +335,7 @@ foreach ($file in $allFiles) {
         if ($null -ne $name -and $using.UsingStatementKind -ne [UsingStatementKind]::Namespace) {
             if ($name.IndexOf('\') -gt -1 -or $name.IndexOf('/') -gt -1) {
                 # resolve relative path
-                $name = [IO.Path]::GetFullPath([IO.Path]::Combine([IO.Path]::GetDirectoryName($file.FullName),$name))
+                $name = [IO.Path]::GetFullPath([IO.Path]::Combine([IO.Path]::GetDirectoryName($file.FullName), $name))
             }
             $relToAssemblies = [IO.Path]::GetRelativePath($srcAssembliesPath, $name)
             $relToModules = [IO.Path]::GetRelativePath($srcModulesPath, $name)
@@ -312,13 +343,13 @@ foreach ($file in $allFiles) {
                 $parent = [IO.Path]::GetDirectoryName($name)
                 $fileName = [IO.Path]::GetFileName($name)
                 $relative = [IO.Path]::GetRelativePath($srcAssembliesPath, $parent)
-                $newPath = [IO.Path]::GetRelativePath($releasePath,[IO.Path]::Combine($releaseAssembliesPath, $relative))
-                $name = '.\' + [IO.Path]::Combine($newPath, $fileName)
+                $newPath = [IO.Path]::GetRelativePath($releasePath, [IO.Path]::Combine($releaseAssembliesPath, $relative))
+                $name = [IO.Path]::Combine($newPath, $fileName)
             }
             else {
                 $fileName = [IO.Path]::GetFileNameWithoutExtension($name)
                 $relativeTarget = [IO.Path]::GetRelativePath($releasePath, $releaseModulesPath)
-                $name = '.\' + [IO.Path]::Combine([IO.Path]::Combine($relativeTarget, $fileName), "$fileName.psd1")
+                $name = [IO.Path]::Combine($relativeTarget, $fileName)
             }
             if ($using.UsingStatementKind -eq [UsingStatementKind]::Module) {
                 $mName = [IO.Path]::GetFileNameWithoutExtension($name)
@@ -373,6 +404,7 @@ foreach ($file in $allFiles) {
 }
 
 $first = $true
+$usingStatements = $usingStatements | SortUsings
 foreach ($using in $usingStatements) {
     $null = $moduleBodySb.AppendLine($using)
     $first = $false
@@ -409,7 +441,7 @@ foreach ($required in $Manifest.RequiredModules) {
 
 $specHashes = [List[object]]@()
 foreach ($spec in $RequiredModules) {
-    $hash = @{ModuleName = $spec.Name}
+    $hash = @{ModuleName = $spec.Name }
     $hashValid = $false
     if ($null -ne $spec.Guid) {
         $hash['Guid'] = $spec.Guid.ToString()
@@ -426,7 +458,7 @@ foreach ($spec in $RequiredModules) {
         $hashValid = $true
         $hash['RequiredVersion'] = $spec.RequiredVersion.ToString()
     }
-    if(!$hashValid) {
+    if (!$hashValid) {
         $hash = $hash['ModuleName']
     }
     $specHashes.Add($hash)
@@ -453,12 +485,20 @@ if ((Test-Path $releasePath)) {
 }
 
 $null = New-Item -Path $releasePath -ItemType Directory -Force -ErrorAction Stop
-$null = Set-Content -Path $moduleDefinition -Value ($moduleBodySb.ToString()) -ErrorAction Stop
+$moduleBodyString = $moduleBodySb.ToString() -replace '(\r?\n)+$', ''
+if ((Test-Path $formattingRulesPath)) {
+    $moduleBodyString = Invoke-Formatter -ScriptDefinition $moduleBodyString -Settings $formattingRulesPath
+}
+$null = Set-Content -Path $moduleDefinition -Value $moduleBodyString -ErrorAction Stop
 
 $entrySb = [StringBuilder]::new()
-$null = ItemToString $Manifest -sb $entrySb
+$null = ItemToString $Manifest -sb $entrySb -SortKeys
 $null = New-Item -Path $moduleManifest -ItemType File -Force
-$null = Set-Content -Path $moduleManifest -Value ($entrySb.ToString())
+$entryString = $entrySb.ToString() -replace '(\r?\n)+$', ''
+if ((Test-Path $formattingRulesPath)) {
+    $entryString = Invoke-Formatter -ScriptDefinition $entryString -Settings $formattingRulesPath
+}
+$null = Set-Content -Path $moduleManifest -Value $entryString
 
 # Copy Modules, Assemblies, and OtherFiles to the release directory
 foreach ($file in $OtherFiles) {
@@ -474,11 +514,9 @@ foreach ($assembly in $AssembliesToCopy) {
     $null = Copy-Item -Path $assembly -Destination $newPath -Force -ErrorAction Stop
 }
 foreach ($module in $ModulesToCopy) {
-    # $releaseModulesPath
     $currentModule = [IO.Path]::GetFileNameWithoutExtension($module)
     $currentDir = [IO.Path]::Combine([IO.Path]::GetDirectoryName($module), $currentModule)
     $newPath = [IO.Path]::Combine($releaseModulesPath, $currentModule)
-    Write-Host "'$currentDir' -> '$newPath'"
     $null = Copy-Item -Path $currentDir -Recurse -Destination $newPath -Force -ErrorAction Stop
 }
 
@@ -488,8 +526,8 @@ if ((Get-Module -Name $ModuleName)) {
 }
 $TempModule = Import-Module $releasePath -PassThru
 # Generate Proxy Functions to load into module state after classes are declared
-$ModuleAssembly = & $TempModule { [AppDomain]::CurrentDomain.GetAssemblies().Where({$_.GetCustomAttributes($false).Where({$_.TypeId -eq [Management.Automation.DynamicClassImplementationAssemblyAttribute] -and $null -eq $_.ScriptFile}).Count -gt 0}) | 
-    Sort-Object -Property {[Version]($_.FullName -replace '^.*Version=([^,]+),.*$','$1')} -Descending | Select-Object -First 1 }
+$ModuleAssembly = & $TempModule { [AppDomain]::CurrentDomain.GetAssemblies().Where({ $_.GetCustomAttributes($false).Where({ $_.TypeId -eq [DynamicClassImplementationAssemblyAttribute] -and ($null -eq $_.ScriptFile -or $_.ScriptFile.StartsWith($releasePath)) }).Count -gt 0 }) | 
+        Sort-Object -Property { [Version]($_.FullName -replace '^.*Version=([^,]+),.*$', '$1') } -Descending | Select-Object -First 1 }
 
 $first = $true
 foreach ($cmdlet in $ModuleAssembly.ExportedTypes) {
@@ -497,7 +535,7 @@ foreach ($cmdlet in $ModuleAssembly.ExportedTypes) {
     while ($type -ne [Cmdlet] -and $null -ne $type.BaseType) { $type = $type.BaseType }
     # Not a cmdlet:
     if ($type -ne [Cmdlet]) { continue }
-    $CmdletAttrib = $cmdlet.GetCustomAttributes(([CmdletAttribute]),$true)
+    $CmdletAttrib = $cmdlet.GetCustomAttributes(([CmdletAttribute]), $true)
     if ($null -eq $CmdletAttrib) { Write-Warning "$($cmdlet.FullName) has no CmdletAttribute"; continue }
     $Verb = $CmdletAttrib.VerbName
     $Noun = $CmdletAttrib.NounName
@@ -516,12 +554,9 @@ foreach ($cmdlet in $ModuleAssembly.ExportedTypes) {
     $Replacement = "`$ExecutionContext.InvokeCommand.GetCmdletByTypeName('$($cmdlet.FullName)')"
     $Definition = @"
 function $funcName {
-    $(($Body -split "`r?`n") -join ([Environment]::NewLine + "    "))
+    $(($Body -split "`r?`n") -join ([Environment]::NewLine + '    '))
 }
 "@ -replace '\$ExecutionContext\.InvokeCommand\.GetCommand\([^\)]+\)(?=\s*(\r?\n|\$))', $Replacement
-
-    # # import proxy into module state
-    # . ([ScriptBlock]::Create($Definition))
 
     if (!$first) { $null = $moduleBodySb.AppendLine() }
     $null = $moduleBodySb.AppendLine()
@@ -544,26 +579,98 @@ if ($BuildType -eq 'Debug') {
 }
 
 if ($CurrentPublicFunctions -lt $publicFunctions.Count) {
-    # Update the Module Definition
-    $null = Set-Content -Path $moduleDefinition -Value ($moduleBodySb.ToString()) -ErrorAction Stop
-
     # Update Manifest Again w/ any new functions
     $Manifest.FunctionsToExport = [string[]]$publicFunctions
-    $null = Set-Content -Path $moduleDefinition -Value ($moduleBodySb.ToString()) -ErrorAction Stop
     
     $entrySb = [StringBuilder]::new()
-    $null = ItemToString $Manifest -sb $entrySb
+    $null = ItemToString $Manifest -sb $entrySb -SortKeys
     $null = New-Item -Path $moduleManifest -ItemType File -Force
-    $null = Set-Content -Path $moduleManifest -Value ($entrySb.ToString())
+    $entryString = $entrySb.ToString() -replace '(\r?\n)+$', ''
+    if ((Test-Path $formattingRulesPath)) {
+        $entryString = Invoke-Formatter -ScriptDefinition $entryString -Settings $formattingRulesPath
+    }
+    $null = Set-Content -Path $moduleManifest -Value $entryString -ErrorAction Stop
 }
+
+
+# Get the OnLoad Script if it exists
+$onLoadEvent = ''
+$onLoadPath = [IO.Path]::Combine($ModuleRoot, 'OnLoad.ps1')
+if ((Test-Path -Path $onLoadPath)) {
+    $parseerrors = $null
+    $onLoadAst = [Parser]::ParseFile($onLoadPath, [ref] $null, [ref] $parseerrors)
+    if ($parseerrors.Count -gt 0) {
+        Write-Warning "Failed to parse OnRemove.ps1: $($parseerrors[0].Message)"
+        return
+    }
+    if (![string]::IsNullOrEmpty($onLoadEvent)) {
+        $onLoadEvent += "`r`n"
+    }
+    $onLoadEvent += $onLoadAst.Extent.Text
+}
+
+if (![string]::IsNullOrWhiteSpace($onLoadEvent)) {
+    $null = $moduleBodySb.AppendLine()
+    $null = $moduleBodySb.AppendLine('# OnLoad Event')
+    $null = $moduleBodySb.AppendLine($onLoadEvent)
+}
+
+# Get the OnRemove Script if it exists
+if ($NestedModules.Count -gt 0) {
+    $onRemoveEvent = @"
+(Get-Module '$ModuleName').NestedModules | Remove-Module -Force
+"@
+}
+else {
+    $onRemoveEvent = ''
+}
+
+$onRemovePath = [IO.Path]::Combine($ModuleRoot, 'OnRemove.ps1')
+if ((Test-Path -Path $onRemovePath)) {
+    $parseerrors = $null
+    $onRemoveAst = [Parser]::ParseFile($onRemovePath, [ref] $null, [ref] $parseerrors)
+    if ($parseerrors.Count -gt 0) {
+        Write-Warning "Failed to parse OnRemove.ps1: $($parseerrors[0].Message)"
+        return
+    }
+    if (![string]::IsNullOrEmpty($onRemoveEvent)) {
+        $onRemoveEvent += "`r`n"
+    }
+    $onRemoveEvent += $onRemoveAst.Extent.Text
+}
+
+if (![string]::IsNullOrWhiteSpace($onRemoveEvent)) {
+    $null = $moduleBodySb.AppendLine()
+    $null = $moduleBodySb.AppendLine('# OnRemove Event Handler')
+    $null = $moduleBodySb.AppendLine('$null = Register-EngineEvent -SourceIdentifier PowerShell.OnIdle -MaxTriggerCount 1 -Action {')
+    $null = $moduleBodySb.AppendLine("    (Get-Module -Name '$ModuleName').OnRemove = {")
+    foreach ($line in $onRemoveEvent -split "`r?`n") {
+        $null = $moduleBodySb.Append('        ')
+        $null = $moduleBodySb.AppendLine($line)
+    }
+    $null = $moduleBodySb.AppendLine('    }')
+    $null = $moduleBodySb.AppendLine('}')
+}
+
+# Update the Module Definition
+$moduleBodyString = $moduleBodySb.ToString() -replace '(\r?\n)+$', ''
+if ((Test-Path $formattingRulesPath)) {
+    $moduleBodyString = Invoke-Formatter -ScriptDefinition $moduleBodyString -Settings $formattingRulesPath
+}
+$null = Set-Content -Path $moduleDefinition -Value $moduleBodyString -ErrorAction Stop
 
 # Save file hashes to bld metadata on successful build
 $null = New-Item -Path $bldMeta -ItemType File -Force
 
 $null = $entrySb.Clear()
-$null = ItemToString $buildHashes -sb $entrySb
+$null = ItemToString $buildHashes -sb $entrySb -SortKeys
 $null = New-Item -Path $bldMeta -ItemType File -Force
-$null = Set-Content -Path $bldMeta -Value ($entrySb.ToString())
+$entryString = $entrySb.ToString() -replace '(\r?\n)+$', ''
+if ((Test-Path $formattingRulesPath)) {
+    $entryString = Invoke-Formatter -ScriptDefinition $entryString -Settings $formattingRulesPath
+}
+$null = Set-Content -Path $bldMeta -Value $entryString -ErrorAction Stop
+
 
 if ($BuildType -eq 'Release') {
     $Files = Get-ChildItem -Path $releasePath | Select-Object -ExpandProperty FullName
@@ -572,6 +679,6 @@ if ($BuildType -eq 'Release') {
 
 Write-Host "Done building '$ModuleName' module."
 if ($Nested) {
-    return $false
+    return $true
 }
 return

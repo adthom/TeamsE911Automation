@@ -1,7 +1,14 @@
+using namespace System.Collections
+using namespace System.Collections.Generic
+using namespace System.Management.Automation
+using namespace System.Management.Automation.Language
+using namespace System.Text
+using namespace Microsoft.PowerShell.Commands
+
 function ValueTypeToString {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory,Position = 0)]
+        [Parameter(Mandatory, Position = 0)]
         [ValueType]
         $value,
 
@@ -26,11 +33,11 @@ function ValueTypeToString {
         $indentChar = ' '
     )
     process {
-        $type = $value.GetType().Name -replace '^System\.',''
+        $type = $value.GetType().Name -replace '^System\.', ''
         $fmtString = switch ($type) {
             'TimeSpan' { "[$_]'{0}'"; break }
-            {$_.StartsWith('Date') -or $_.StartsWith('Time')} { "[$_]'{0:o}'"; break }
-            {$_.EndsWith('byte')} { "[$_]0X{0:X2}"; break }
+            { $_.StartsWith('Date') -or $_.StartsWith('Time') } { "[$_]'{0:o}'"; break }
+            { $_.EndsWith('byte') } { "[$_]0X{0:X2}"; break }
             'Int32' { '{0}'; break }
             'Int64' { '{0}l'; break }
             'Double' { '{0:#.0}'; break }

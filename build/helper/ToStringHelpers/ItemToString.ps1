@@ -1,7 +1,14 @@
+using namespace System.Collections
+using namespace System.Collections.Generic
+using namespace System.Management.Automation
+using namespace System.Management.Automation.Language
+using namespace System.Text
+using namespace Microsoft.PowerShell.Commands
+
 function ItemToString {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory,ValueFromPipeline,Position = 0)]
+        [Parameter(Mandatory, ValueFromPipeline, Position = 0)]
         [AllowNull()]
         [AllowEmptyCollection()]
         [AllowEmptyString()]
@@ -30,15 +37,18 @@ function ItemToString {
         
         [Parameter()]
         [switch]
-        $AsKey
+        $AsKey,
+
+        [switch]
+        $SortKeys
     )
     process {
         $itemSb = [StringBuilder]::new()
         $nestParams = @{
-            sb = $itemSb
+            sb         = $itemSb
             # indent = $indent + 1
-            indent = $indent
-            Compress = $AsKey -or $Compress
+            indent     = $indent
+            Compress   = $AsKey -or $Compress
             indentSize = $indentSize
             indentChar = $indentChar
         }
@@ -47,21 +57,21 @@ function ItemToString {
             $null = $itemSb.Append('$null')
         }
         elseif ($item -is [IDictionary]) {
-            DictionaryToString $item @nestParams
+            DictionaryToString $item @nestParams -SortKeys:$SortKeys
         }
         elseif ($item -is [ICollection] -or (
-            ($t = $item.GetType()).DeclaredProperties.Where({$_.Name -eq 'Count'},'First',1).Count -gt 0 -and 
-            $t.DeclaredMembers.Where({$_.Name -eq 'GetEnumerator'},'First',1).Count -gt 0)) {
+            ($t = $item.GetType()).DeclaredProperties.Where({ $_.Name -eq 'Count' }, 'First', 1).Count -gt 0 -and 
+                $t.DeclaredMembers.Where({ $_.Name -eq 'GetEnumerator' }, 'First', 1).Count -gt 0)) {
             CollectionToString $item @nestParams
         }
         elseif ($item -is [string]) {
-           StringToString $item @nestParams
+            StringToString $item @nestParams
         }
         elseif ($item -is [ValueType]) {
             ValueTypeToString $item @nestParams
         }
         else {
-            $itemType = $item.GetType().FullName -replace '^System\.',''
+            $itemType = $item.GetType().FullName -replace '^System\.', ''
             $null = $itemSb.Append('[')
             $null = $itemSb.Append($itemType)
             $null = $itemSb.Append(']')

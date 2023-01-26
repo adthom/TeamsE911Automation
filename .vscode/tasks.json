@@ -4,7 +4,7 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "release",
+            "label": "build RELEASE",
             "type": "process",
             "command": "pwsh",
             "args": [
@@ -24,7 +24,7 @@
             }
         },
         {
-            "label": "debug",
+            "label": "build DEBUG",
             "type": "process",
             "command": "pwsh",
             "args": [
