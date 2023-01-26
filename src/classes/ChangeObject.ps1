@@ -1,4 +1,4 @@
-using module "..\..\modules\TeamsE911Internal\bin\release\TeamsE911Internal\TeamsE911Internal.psd1"
+using module '..\..\modules\TeamsE911Internal\bin\release\TeamsE911Internal\TeamsE911Internal.psd1'
 
 class ChangeObject {
     hidden [string] $_hash

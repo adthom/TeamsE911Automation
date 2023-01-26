@@ -24,7 +24,7 @@ class CachedLisObject {
     static [LisObject] GetFromCache([Type] $TypeInfo, [string] $identifier, [bool] $ForceUpdate) {
         $Cache = [LisCache]::Cache[$TypeInfo]
         $Result = $null
-        if ($null -ne $Cache -and $Cache.TryGetValue($identifier, [ref]$Result) -and $Result.CacheInsertionTime -gt [DateTime]::Now.AddMinutes(-[LisCache]::CacheLifetime)) {
+        if ($null -ne $Cache -and $Cache.TryGetValue($identifier, [ref]$Result) -and $Result.CacheInsertionTime -gt [DateTime]::Now.AddMinutes( - [LisCache]::CacheLifetime)) {
             if ($ForceUpdate) {
                 $Cache.Remove($identifier)
                 return $null
@@ -41,7 +41,7 @@ class CachedLisObject {
             $Cache = $null
         }
         if ($null -ne $Cache) {
-            $Expired = $Cache.Values.Where({ $_.CacheInsertionTime -lt [DateTime]::Now.AddMinutes(-[LisCache]::CacheLifetime) })
+            $Expired = $Cache.Values.Where({ $_.CacheInsertionTime -lt [DateTime]::Now.AddMinutes( - [LisCache]::CacheLifetime) })
             $Values = $Cache.Values.ForEach({ $_.WrappedObject })
             if ($Expired.Count -eq 0 -and $Values.Count -gt 0) {
                 if ($ForceUpdate) {
@@ -110,8 +110,8 @@ class LisObject {
         if ($PointQuery) {
             if ([CachedLisObject]::IsMissing($type, $identifier, $ForceUpdate)) { return @() }
             # if ($additionalParams.Keys.Count -eq 0) {
-                $Result = [CachedLisObject]::GetFromCache($type, $identifier, $ForceUpdate)
-                if ($null -ne $Result -and !$ForceUpdate) { return [LisObject[]]@($Result) }
+            $Result = [CachedLisObject]::GetFromCache($type, $identifier, $ForceUpdate)
+            if ($null -ne $Result -and !$ForceUpdate) { return [LisObject[]]@($Result) }
             # }
             $idParams = $type::IdentifierParams($identifier)
             foreach ($key in $idParams.Keys) {
@@ -143,7 +143,7 @@ class LisObject {
         return $true
     }
     [bool] ValueEquals([object] $obj) {
-        if(!$this.PossibleDuplicate($obj)) { return $false }
+        if (!$this.PossibleDuplicate($obj)) { return $false }
         $lObj = $obj -as ($this.GetType())
         $Properties = [LisObject]::_getPublicPwshClassProperties($this.GetType()).Name
         foreach ($Prop in $Properties) {
@@ -156,7 +156,7 @@ class LisObject {
     # }
     hidden static [PropertyInfo[]] _getPublicPwshClassProperties([Type] $type) {
         return [PropertyInfo[]]$type.GetProperties('Instance,Public').Where({
-            $_.CustomAttributes.Where({$_.AttributeType -eq [HiddenAttribute]},'First',1).Count -eq 0})
+                $_.CustomAttributes.Where({ $_.AttributeType -eq [HiddenAttribute] }, 'First', 1).Count -eq 0 })
     }
     [string] ToString() {
         return $this.Identifier()
@@ -203,10 +203,10 @@ class LisNetworkObject : LisObject {
     }
     static [List[LisNetworkObject]] GetAll([bool] $IncludeOrphaned, [bool] $ForceUpdate, [Func[LisNetworkObject, bool]] $Filter) {
         $result = [List[LisNetworkObject]]@()
-        $result.AddRange([LisPort[]][LisPort]::GetAll($ForceUpdate).Where({$Filter.Invoke($_)}).Where({ $IncludeOrphaned -or !$_.IsOrphaned() }))
-        $result.AddRange([LisSwitch[]][LisSwitch]::GetAll($ForceUpdate).Where({$Filter.Invoke($_)}).Where({ $IncludeOrphaned -or !$_.IsOrphaned() }))
-        $result.AddRange([LisSubnet[]][LisSubnet]::GetAll($ForceUpdate).Where({$Filter.Invoke($_)}).Where({ $IncludeOrphaned -or !$_.IsOrphaned() }))
-        $result.AddRange([LisWirelessAccessPoint[]][LisWirelessAccessPoint]::GetAll($ForceUpdate).Where({$Filter.Invoke($_)}).Where({ $IncludeOrphaned -or !$_.IsOrphaned() }))
+        $result.AddRange([LisPort[]][LisPort]::GetAll($ForceUpdate).Where({ $Filter.Invoke($_) }).Where({ $IncludeOrphaned -or !$_.IsOrphaned() }))
+        $result.AddRange([LisSwitch[]][LisSwitch]::GetAll($ForceUpdate).Where({ $Filter.Invoke($_) }).Where({ $IncludeOrphaned -or !$_.IsOrphaned() }))
+        $result.AddRange([LisSubnet[]][LisSubnet]::GetAll($ForceUpdate).Where({ $Filter.Invoke($_) }).Where({ $IncludeOrphaned -or !$_.IsOrphaned() }))
+        $result.AddRange([LisWirelessAccessPoint[]][LisWirelessAccessPoint]::GetAll($ForceUpdate).Where({ $Filter.Invoke($_) }).Where({ $IncludeOrphaned -or !$_.IsOrphaned() }))
         return $result
     }
     hidden [LisLocation] $_location = $null
@@ -283,7 +283,7 @@ class LisAddressBase : LisObject {
     hidden static [List[LisAddressBase]] _get([string] $identifier, [CommandInfo] $command, [Type] $type, [bool] $ForceUpdate) {
         $additionalParams = @{
             PopulateNumberOfTelephoneNumbers = $true
-            PopulateNumberOfVoiceUsers = $true
+            PopulateNumberOfVoiceUsers       = $true
         }
         return [LisAddressBase[]][LisObject]::_get($type, $command, $identifier, $additionalParams, $ForceUpdate)
     }
@@ -401,10 +401,10 @@ class LisLocation : LisAddressBase {
     static [List[LisLocation]] GetAll([bool] $ForceUpdate) {
         return [LisLocation]::Get('', $ForceUpdate)
     }
-    static [List[LisLocation]] GetAll([Func[LisLocation,bool]] $Filter) {
+    static [List[LisLocation]] GetAll([Func[LisLocation, bool]] $Filter) {
         return [LisLocation]::GetAll($false, $Filter)
     }
-    static [List[LisLocation]] GetAll([bool] $ForceUpdate, [Func[LisLocation,bool]] $Filter) {
+    static [List[LisLocation]] GetAll([bool] $ForceUpdate, [Func[LisLocation, bool]] $Filter) {
         return [LisLocation[]][LisLocation]::Get('', $ForceUpdate).Where({ $Filter.Invoke($_) })
     }
     static [List[LisLocation]] Get([string] $LocationId, [bool] $ForceUpdate) {
@@ -412,7 +412,7 @@ class LisLocation : LisAddressBase {
     }
     [List[LisNetworkObject]] GetAssociatedNetworkObjects([bool] $ForceUpdate) {
         if ($null -eq $this._associatedNetworkObjects -or $ForceUpdate) {
-            $this._associatedNetworkObjects = [LisNetworkObject[]][LisNetworkObject]::GetAll($ForceUpdate, [Func[LisNetworkObject,bool]]{ $args[0].LocationId -eq $this.LocationId })
+            $this._associatedNetworkObjects = [LisNetworkObject[]][LisNetworkObject]::GetAll($ForceUpdate, [Func[LisNetworkObject, bool]] { $args[0].LocationId -eq $this.LocationId })
             $address = $this.GetCivicAddress($ForceUpdate)
             foreach ($no in $this._associatedNetworkObjects) {
                 $no._location = $this
@@ -478,9 +478,9 @@ class LisLocation : LisAddressBase {
         return 0
     }
 
-    hidden static [Func[LisLocation,LisLocation,LisLocation][]] $_locationPriorityTests = @(
+    hidden static [Func[LisLocation, LisLocation, LisLocation][]] $_locationPriorityTests = @(
         {
-            param($l1,$l2)
+            param($l1, $l2)
             $l1TestSuccessful = $l1.IsOrphaned()
             $l2TestSuccessful = $l2.IsOrphaned()
             if ($l1TestSuccessful -and !$l2TestSuccessful) { return $l1 }
@@ -488,7 +488,7 @@ class LisLocation : LisAddressBase {
             return $null
         }
         {
-            param($l1,$l2)
+            param($l1, $l2)
             $l1TestSuccessful = $l1.IsValid()
             $l2TestSuccessful = $l2.IsValid()
             if ($l1TestSuccessful -and !$l2TestSuccessful) { return $l1 }
@@ -496,15 +496,15 @@ class LisLocation : LisAddressBase {
             return $null
         }
         {
-            param($l1,$l2)
-            $l1TestSuccessful = ($l1.Longitude -replace '0','').Length -gt 1 -and ($l1.Latitude -replace '0','').Length -gt 1
-            $l2TestSuccessful = ($l2.Longitude -replace '0','').Length -gt 1 -and ($l2.Latitude -replace '0','').Length -gt 1
+            param($l1, $l2)
+            $l1TestSuccessful = ($l1.Longitude -replace '0', '').Length -gt 1 -and ($l1.Latitude -replace '0', '').Length -gt 1
+            $l2TestSuccessful = ($l2.Longitude -replace '0', '').Length -gt 1 -and ($l2.Latitude -replace '0', '').Length -gt 1
             if ($l1TestSuccessful -and !$l2TestSuccessful) { return $l1 }
             if ($l2TestSuccessful -and !$l1TestSuccessful) { return $l2 }
             return $null
         }
         {
-            param($l1,$l2)
+            param($l1, $l2)
             $l1TestSuccessful = $l1.IsInUse()
             $l2TestSuccessful = $l2.IsInUse()
             if ($l1TestSuccessful -and !$l2TestSuccessful) { return $l1 }
@@ -512,7 +512,7 @@ class LisLocation : LisAddressBase {
             return $null
         }
         {
-            param($l1,$l2)
+            param($l1, $l2)
             $a1 = $l1.GetAddress()
             $a2 = $l2.GetAddress()
             $l1TestSuccessful = $a1.IsInUse()
@@ -522,7 +522,7 @@ class LisLocation : LisAddressBase {
             return $null
         }
         {
-            param($l1,$l2)
+            param($l1, $l2)
             $a1 = $l1.GetAddress()
             $a2 = $l2.GetAddress()
             $a1Count = $a1.GetAssociatedNetworkObjects().Count
@@ -532,7 +532,7 @@ class LisLocation : LisAddressBase {
             return $null
         }
         {
-            param($l1,$l2)
+            param($l1, $l2)
             $a1 = $l1.GetAddress()
             $a2 = $l2.GetAddress()
             $a1Count = $a1.NumberOfVoiceUsers + $a1.NumberOfTelephoneNumbers
@@ -542,7 +542,7 @@ class LisLocation : LisAddressBase {
             return $null
         }
         {
-            param($l1,$l2)
+            param($l1, $l2)
             $l1Count = $l1.NumberOfVoiceUsers + $l1.NumberOfTelephoneNumbers
             $l2Count = $l2.NumberOfVoiceUsers + $l2.NumberOfTelephoneNumbers
             if ($l1Count -gt $l2Count) { return $l1 }
@@ -550,7 +550,7 @@ class LisLocation : LisAddressBase {
             return $null
         }
         {
-            param($l1,$l2)
+            param($l1, $l2)
             $l1Count = $l1.GetAssociatedNetworkObjects().Count
             $l2Count = $l2.GetAssociatedNetworkObjects().Count
             if ($l1Count -gt $l2Count) { return $l1 }
@@ -655,7 +655,7 @@ class LisCivicAddress : LisAddressBase {
     hidden [List[LisLocation]] $_associatedLocations = $null
     [List[LisLocation]] GetAssociatedLocations([bool] $ForceUpdate) {
         if ($null -eq $this._associatedLocations -or $ForceUpdate) {
-            $this._associatedLocations = [LisLocation[]][LisLocation]::GetAll($ForceUpdate, [Func[LisLocation,bool]]{$args[0].CivicAddressId -eq $this.CivicAddressId})
+            $this._associatedLocations = [LisLocation[]][LisLocation]::GetAll($ForceUpdate, [Func[LisLocation, bool]] { $args[0].CivicAddressId -eq $this.CivicAddressId })
             foreach ($l in $this._associatedLocations) {
                 $l._civicAddress = $this
             }
@@ -923,7 +923,7 @@ class LisLocationPrioritySet : HashSet[object] {
     LisLocationPrioritySet([IEnumerable[object]] $collection) : base([LisLocationEqualityComparer]::new()) {
         $this.UnionWith($collection)
     }
-    LisLocationPrioritySet([int] $capacity) : base($capacity,[LisLocationEqualityComparer]::new()) {}
+    LisLocationPrioritySet([int] $capacity) : base($capacity, [LisLocationEqualityComparer]::new()) {}
 
     [bool] Add([object] $obj) {
         if ($null -eq $obj) { return $false }
@@ -941,7 +941,7 @@ class LisLocationPrioritySet : HashSet[object] {
     }
 
     [void] UnionWith([IEnumerable[object]] $other) {
-        if ($null -eq $other) { throw [ArgumentNullException]::new("other") }
+        if ($null -eq $other) { throw [ArgumentNullException]::new('other') }
         foreach ($location in $other) {
             $this.Add($location)
         }

@@ -194,12 +194,12 @@ class E911DataRow {
                 # $parent.WriteVerbose(('{0}: Address new or changed' -f $this.RowName()))
                 $changeHelper.WriteVerbose('Address new or changed')
                 $l.Add([ChangeObject]@{
-                    UpdateType    = [UpdateType]::Online
-                    ProcessInfo   = $ac
-                    DependsOn     = $d
-                    CommandType   = [CommandType]::Address
-                    CommandObject = $this._networkObject._location._address
-                })
+                        UpdateType    = [UpdateType]::Online
+                        ProcessInfo   = $ac
+                        DependsOn     = $d
+                        CommandType   = [CommandType]::Address
+                        CommandObject = $this._networkObject._location._address
+                    })
             }
             if ($addressAdded -or $this._networkObject._location._address._commandGenerated) {
                 $d.Add($this._networkObject._location._address.Id)
@@ -258,7 +258,7 @@ class E911DataRow {
             Property = [E911DataRow]::Properties + @(
                 @{ Name = 'EntryHash'; Expression = { $this.EntryHash } }, 
                 @{ Name = 'Warning'; Expression = { if ($this.HasWarnings()) { $this.Warning.ToString() } else { '' } } }
-                )
+            )
         }
         $this._string = $this._originalRow | Select-Object @SelectParams | ConvertTo-Json -Compress
         $this._lastWarnCount = $this.Warning.Count()

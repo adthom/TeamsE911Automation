@@ -6,6 +6,6 @@ function Assert-TeamsIsConnected {
         # maybe check for token expiration here?
     }
     catch {
-        throw "Run Connect-MicrosoftTeams prior to executing this script!"
+        throw 'Run Connect-MicrosoftTeams prior to executing this script!'
     }
 }

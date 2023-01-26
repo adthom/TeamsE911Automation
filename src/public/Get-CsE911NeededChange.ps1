@@ -1,4 +1,4 @@
-using module "..\..\modules\PSClassExtensions\bin\release\PSClassExtensions\PSClassExtensions.psd1"
+using module '..\..\modules\PSClassExtensions\bin\release\PSClassExtensions\PSClassExtensions.psd1'
 
 function Get-CsE911NeededChange {
     [CmdletBinding()]
@@ -32,7 +32,7 @@ function Get-CsE911NeededChange {
             $validatingHelper.WriteVerbose(('{0} Validating object...' -f $lc.RowName()))
             # We can no longer skip "unchanged" rows because we need to check for changes in other rows that may affect this row
             if ($lc.HasWarnings()) {
-                $validatingHelper.WriteVerbose(('{0} validation failed with {1} issue{2}!' -f $lc.RowName(), $lc.Warning.Count(), $(if($lc.Warning.Count() -gt 1) {'s'})))
+                $validatingHelper.WriteVerbose(('{0} validation failed with {1} issue{2}!' -f $lc.RowName(), $lc.Warning.Count(), $(if ($lc.Warning.Count() -gt 1) { 's' })))
                 [ChangeObject]::new($lc) | Write-Output
                 continue
             }
@@ -50,7 +50,7 @@ function Get-CsE911NeededChange {
             foreach ($Row in $Rows) {
                 $processingHelper.Update($true, $Row.RowName())
                 if ($Row.HasWarnings()) {
-                    $processingHelper.WriteVerbose(('{0} validation failed with {1} issue{2}!' -f $Row.RowName(), $Row.Warning.Count(), $(if($Row.Warning.Count() -gt 1) {'s'})))
+                    $processingHelper.WriteVerbose(('{0} validation failed with {1} issue{2}!' -f $Row.RowName(), $Row.Warning.Count(), $(if ($Row.Warning.Count() -gt 1) { 's' })))
                     [ChangeObject]::new($Row) | Write-Output
                     continue
                 }

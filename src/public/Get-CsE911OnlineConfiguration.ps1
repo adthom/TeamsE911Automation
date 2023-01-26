@@ -1,4 +1,4 @@
-using module "..\..\modules\PSClassExtensions\bin\release\PSClassExtensions\PSClassExtensions.psd1"
+using module '..\..\modules\PSClassExtensions\bin\release\PSClassExtensions\PSClassExtensions.psd1'
 
 function Get-CsE911OnlineConfiguration {
     [CmdletBinding()]
@@ -87,4 +87,3 @@ function Get-CsE911OnlineConfiguration {
         }
     }
 }
-

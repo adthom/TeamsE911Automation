@@ -1,5 +1,5 @@
 class E911Address {
-    hidden static [string[]] $_addressHashProps = @("CompanyName", "Address", "City", "StateOrProvince", "PostalCode", "CountryOrRegion")
+    hidden static [string[]] $_addressHashProps = @('CompanyName', 'Address', 'City', 'StateOrProvince', 'PostalCode', 'CountryOrRegion')
 
     hidden [ItemId] $Id
     hidden [string] $_houseNumber
@@ -39,10 +39,10 @@ class E911Address {
             }
             # all required
             $RequiredProps = @(
-                "CompanyName",
-                "City",
-                "StateOrProvince",
-                "CountryOrRegion"
+                'CompanyName',
+                'City',
+                'StateOrProvince',
+                'CountryOrRegion'
             )
             try {
                 $this.SkipMapsLookup = ![string]::IsNullOrWhiteSpace($obj.SkipMapsLookup) -and [System.Convert]::ToBoolean($obj.SkipMapsLookup)
@@ -52,9 +52,9 @@ class E911Address {
             }
             if ($this.SkipMapsLookup) {
                 # add required if skipping lookup
-                $RequiredProps += "PostalCode"
-                $RequiredProps += "Latitude"
-                $RequiredProps += "Longitude"
+                $RequiredProps += 'PostalCode'
+                $RequiredProps += 'Latitude'
+                $RequiredProps += 'Longitude'
             }
             foreach ($Required in $RequiredProps) {
                 if ([string]::IsNullOrWhiteSpace($obj.$Required)) {
@@ -62,11 +62,11 @@ class E911Address {
                 }
             }
             if ($obj.CountryOrRegion.Length -ne 2) {
-                [void]$this.Warning.Add($WarnType, "CountryOrRegion not ISO 3166-1 alpha-2 code")
+                [void]$this.Warning.Add($WarnType, 'CountryOrRegion not ISO 3166-1 alpha-2 code')
             }
             if (![string]::IsNullOrEmpty($obj.Longitude) -xor ![string]::IsNullOrEmpty($obj.Latitude)) {
                 # only one provided of lat or long, both are required if either is present
-                [void]$this.Warning.Add($WarnType, "$(if([string]::IsNullOrEmpty($obj.Latitude)) { "Latitude" } else { "Longitude" }) missing")
+                [void]$this.Warning.Add($WarnType, "$(if([string]::IsNullOrEmpty($obj.Latitude)) { 'Latitude' } else { 'Longitude' }) missing")
 
             }
             if ($this.SkipMapsLookup -or ![string]::IsNullOrEmpty($obj.Latitude) -or ![string]::IsNullOrEmpty($obj.Longitude)) {

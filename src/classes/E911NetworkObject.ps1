@@ -54,7 +54,7 @@ class E911NetworkObject {
                 [void]$this.Warning.Add([WarningType]::InvalidInput, "NetworkObjectType 'Unknown'")
             }
             if ([string]::IsNullOrWhiteSpace($NetworkObjectIdentifier) -and $NetworkObjectType -ne [NetworkObjectType]::Unknown) {
-                [void]$this.Warning.Add([WarningType]::InvalidInput, "NetworkObjectIdentifier missing")
+                [void]$this.Warning.Add([WarningType]::InvalidInput, 'NetworkObjectIdentifier missing')
             }
             else {
                 try {
@@ -119,7 +119,7 @@ class E911NetworkObject {
     }
 
     E911NetworkObject() {
-        $this.Init('Unknown','','')
+        $this.Init('Unknown', '', '')
     }
 
     E911NetworkObject([bool]$online, [hashtable] $Hash) {
@@ -278,7 +278,7 @@ class E911NetworkObject {
             # if Value2 is online
             else {
                 # cannot compare online network object to row on anything other than hash... or should we see if the online location exists (that would be expensive)
-                throw "(Value2 is online) cannot compare online network object to row network object effectively"
+                throw '(Value2 is online) cannot compare online network object to row network object effectively'
             }
         }
         # if Value1 is network object
@@ -301,7 +301,7 @@ class E911NetworkObject {
             # if Value2 is row
             if ($null -eq $Value2.LocationId -and $Value2 -isnot [E911NetworkObject]) {
                 # cannot compare online network object to row on anything other than hash... or should we see if the online location exists (that would be expensive)
-                throw "(Value2 is row) cannot compare online network object to row network object effectively"
+                throw '(Value2 is row) cannot compare online network object to row network object effectively'
             }
             # if Value2 is network object
             elseif ($Value2 -is [E911NetworkObject]) {

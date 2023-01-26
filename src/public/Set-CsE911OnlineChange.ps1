@@ -1,4 +1,4 @@
-using module "..\..\modules\PSClassExtensions\bin\release\PSClassExtensions\PSClassExtensions.psd1"
+using module '..\..\modules\PSClassExtensions\bin\release\PSClassExtensions\PSClassExtensions.psd1'
 
 function Set-CsE911OnlineChange {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
@@ -30,7 +30,7 @@ function Set-CsE911OnlineChange {
                 }
                 if ((Test-Path -Path $ExecutionPlanPath -PathType Container -ErrorAction SilentlyContinue)) {
                     # get new file name:
-                    $ExecutionName = if (!$PSCmdlet.ShouldProcess("Creating Execution Plan File Name")) { 'ExecutionPlan' } else { 'ExecutedCommands' }
+                    $ExecutionName = if (!$PSCmdlet.ShouldProcess('Creating Execution Plan File Name')) { 'ExecutionPlan' } else { 'ExecutedCommands' }
                     $Date = '{0:yyyy-MM-dd HH:mm:ss}' -f [DateTime]::Now
                     $FileName = 'E911{0}_{1:yyyyMMdd_HHmmss}.txt' -f $ExecutionName, [DateTime]::Now
                     $ExecutionPlanPath = Join-Path -Path $ExecutionPlanPath -ChildPath $FileName
@@ -42,7 +42,7 @@ function Set-CsE911OnlineChange {
                         ErrorAction = 'Stop'
                     }
                     Set-Content -Value '# *******************************************************************************' @ContentParams
-                    if (!$PSCmdlet.ShouldProcess("Creating Execution Plan Header")) {
+                    if (!$PSCmdlet.ShouldProcess('Creating Execution Plan Header')) {
                         Add-Content -Value '# Teams E911 Automation generated execution plan' @ContentParams
                         Add-Content -Value '# The following commands are what the workflow would execute in a live scenario' @ContentParams
                         Add-Content -Value '# These must be executed from a valid MicrosoftTeams PowerShell session' @ContentParams
@@ -121,7 +121,7 @@ function Set-CsE911OnlineChange {
                             $ExecutionPlanPath = New-ExecutionPlanFile -ExecutionPlanPath $ExecutionPlanPath
                             $ExecutionPlanFileCreated = $true
                         }
-                        "# COMMAND FAILED! ERROR:" | Add-Content -Path $ExecutionPlanPath -WhatIf:$false
+                        '# COMMAND FAILED! ERROR:' | Add-Content -Path $ExecutionPlanPath -WhatIf:$false
                         "# $($_.Exception.Message -replace "`n","`n# ")" | Add-Content -Path $ExecutionPlanPath -WhatIf:$false
                     }
                 }
@@ -193,7 +193,7 @@ function Set-CsE911OnlineChange {
                                 $ExecutionPlanPath = New-ExecutionPlanFile -ExecutionPlanPath $ExecutionPlanPath
                                 $ExecutionPlanFileCreated = $true
                             }
-                            "# COMMAND FAILED! ERROR:" | Add-Content -Path $ExecutionPlanPath -WhatIf:$false
+                            '# COMMAND FAILED! ERROR:' | Add-Content -Path $ExecutionPlanPath -WhatIf:$false
                             "# $($_.Exception.Message -replace "`n","`n# ")" | Add-Content -Path $ExecutionPlanPath -WhatIf:$false
                         }
                     }
@@ -208,4 +208,3 @@ function Set-CsE911OnlineChange {
         }
     }
 }
-
