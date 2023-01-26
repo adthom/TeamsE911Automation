@@ -1,56 +1,99 @@
-function ValueTypeToString {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory, Position = 0)]
-        [ValueType]
-        $value,
+using namespace System.Collections
+using namespace System.Collections.Generic
 
-        [Parameter(Mandatory)]
-        [StringBuilder]
-        $sb,
+class WarningList {
+    hidden [List[Warning]] $_items
+    hidden [bool] $_mapsValidationFailed
+    hidden [int] $_validationFailureCount
+    hidden [int] $_itemCountWhenLastUpdatedValidationFailureCount
 
-        [Parameter()]
-        [int]
-        $indent = 0,
-
-        [Parameter()]
-        [switch]
-        $Compress,
-
-        [Parameter()]
-        [int]
-        $indentSize = 4,
-
-        [Parameter()]
-        [char]
-        $indentChar = ' '
-    )
-    process {
-        $type = $value.GetType().Name -replace '^System\.', ''
-        $fmtString = switch ($type) {
-            'TimeSpan' { "[$_]'{0}'"; break }
-            { $_.StartsWith('Date') -or $_.StartsWith('Time') } { "[$_]'{0:o}'"; break }
-            { $_.EndsWith('byte') } { "[$_]0X{0:X2}"; break }
-            'Int32' { '{0}'; break }
-            'Int64' { '{0}l'; break }
-            'Double' { '{0:#.0}'; break }
-            'Single' { '[float]{0}'; break }
-            'Decimal' { '{0}d'; break }
-            'BigInteger' { '[bigint]{0}'; break }
-            # # only in 6.2+
-            # 'sbyte' { '0X{0:X2}y'; break }
-            # 'byte' { '0X{0:X2}uy'; break }
-            # 'Int16' { '{0}s'; break }
-            # 'Int16' { '[short]{0}'; break }
-            # 'UInt16' { '{0}us'; break }
-            # 'UInt16' { '[ushort]{0}'; break }
-            # 'UInt32' { '{0}u'; break }
-            # 'UInt32' { '[uint]{0}'; break }
-            # 'UInt64' { '{0}ul'; break }
-            # 'UInt64' { '[ulong]{0}'; break }
-            # 'BigInteger' { '{0}n'; break }
-            default { "[$_]{0}" }
+    WarningList() {
+        $this._items = [List[Warning]]::new()
+        $this._mapsValidationFailed = $false
+    }
+    WarningList([string] $WarningListString) {
+        $this._items = [List[Warning]]::new()
+        $this._mapsValidationFailed = $false
+        if ([string]::IsNullOrEmpty($WarningListString)) {
+            return
         }
-        $null = $sb.AppendFormat($fmtString, $value)
+        $Parts = $WarningListString.Split(';')
+        foreach ($Part in $Parts) {
+            $this.Add([Warning]::new($Part.Trim()))
+        }
+    }
+    [void] Clear() {
+        $this._items.Clear()
+    }
+    [int] Count() {
+        return $this._items.Count
+    }
+    [bool] Contains([Warning] $Warning) {
+        return $this._items.Contains($Warning)
+    }
+    [bool] HasWarnings() {
+        return $this.Count() -gt 0
+    }
+    [bool] ValidationFailed() {
+        return $this.ValidationFailureCount() -gt 0
+    }
+    [int] MapsValidationFailed() {
+        return $this._mapsValidationFailed
+    }
+    [int] ValidationFailureCount() {
+        if ($null -eq $this._validationFailureCount -or $this._itemCountWhenLastUpdatedValidationFailureCount -eq $this.Count()) {
+            $this._validationFailureCount = $this._items.Where({ ($_.Type -band [WarningType]::ValidationErrors) -eq $_.Type }).Count
+        }
+        return $this._validationFailureCount
+    }
+    [void] Add([Warning] $Warning) {
+        if ($this.Contains($Warning)) { return }
+        if ([E911ModuleState]::WriteWarnings) {
+            $CallStack = Get-PSCallStack
+            if (($CallStack | Where-Object { $_.FunctionName.StartsWith('AddRange') }).Count -eq 0) {
+                $CommandName = [E911ModuleState]::GetCommandName()
+                Write-Warning ('[{0}] {1}' -f $CommandName, $Warning.ToString())
+            }
+        }
+        if (!$this._mapsValidationFailed -and $Warning.Type -eq [WarningType]::MapsValidation) {
+            $this._mapsValidationFailed = $true
+        }
+        $this._items.Add($Warning)
+    }
+    [void] AddAsString([string]$Warning) {
+        $this.Add([Warning]::new($Warning))
+    }
+    [void] Add([WarningType] $Type, [string] $Message) {
+        $this.Add([Warning]::new($Type, $Message))
+    }
+    [void] AddRange([IEnumerable[Warning]] $Ids) {
+        foreach ($Id in $Ids) {
+            $this.Add($Id)
+        }
+    }
+    [void] AddRangeAsString([IEnumerable[string]] $Ids) {
+        foreach ($Id in $Ids) {
+            $this.AddAsString($Id)
+        }
+    }
+    [void] AddRange([WarningList] $WarningList) {
+        foreach ($Id in $WarningList.GetEnumerator()) {
+            $this.Add($Id)
+        }
+    }
+    [void] Insert([int]$Position, [Warning] $Warning) {
+        $this._items.Insert($Position, $Warning)
+    }
+    [IEnumerator] GetEnumerator() {
+        return $this._items.GetEnumerator()
+    }
+    [IEnumerator] GetEnumerator([int] $Index, [int] $Count) {
+        return $this._items.GetEnumerator($Index, $Count)
+    }
+    [void] Remove([Warning] $Warning) {
+        $this._items.Remove($Warning)
+    }
+    [string] ToString() {
+        return ($this._items -join ';')
     }
 }

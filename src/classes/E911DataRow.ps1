@@ -1,56 +1,363 @@
-function ValueTypeToString {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory, Position = 0)]
-        [ValueType]
-        $value,
+class E911DataRow {
+    hidden static [object[]] $Properties = @('CompanyName', 'CompanyTaxId', 'Description', 'Address', 'Location', 'City', 'StateOrProvince', 'PostalCode', 'CountryOrRegion', 'Latitude', 'Longitude', 'Elin', 'NetworkDescription', 'NetworkObjectType', 'NetworkObjectIdentifier', 'SkipMapsLookup')
+    # Hidden Properties
+    hidden [PSCustomObject] $_originalRow
+    hidden [string] $_string
+    hidden [string] $_hashString
+    hidden [string] $_hash
+    hidden [string] $_rowName
+    hidden [int] $_lastWarnCount
+    hidden [E911NetworkObject] $_networkObject
+    hidden [ItemId] $Id = [ItemId]::new()
 
-        [Parameter(Mandatory)]
-        [StringBuilder]
-        $sb,
+    # Constructors
+    hidden [void] Init([PSCustomObject] $obj, [bool]$ForceSkipValidation) {
+        $this._originalRow = $obj
+        $this.Warning = [WarningList]::new($obj.Warning)
 
-        [Parameter()]
-        [int]
-        $indent = 0,
-
-        [Parameter()]
-        [switch]
-        $Compress,
-
-        [Parameter()]
-        [int]
-        $indentSize = 4,
-
-        [Parameter()]
-        [char]
-        $indentChar = ' '
-    )
-    process {
-        $type = $value.GetType().Name -replace '^System\.', ''
-        $fmtString = switch ($type) {
-            'TimeSpan' { "[$_]'{0}'"; break }
-            { $_.StartsWith('Date') -or $_.StartsWith('Time') } { "[$_]'{0:o}'"; break }
-            { $_.EndsWith('byte') } { "[$_]0X{0:X2}"; break }
-            'Int32' { '{0}'; break }
-            'Int64' { '{0}l'; break }
-            'Double' { '{0:#.0}'; break }
-            'Single' { '[float]{0}'; break }
-            'Decimal' { '{0}d'; break }
-            'BigInteger' { '[bigint]{0}'; break }
-            # # only in 6.2+
-            # 'sbyte' { '0X{0:X2}y'; break }
-            # 'byte' { '0X{0:X2}uy'; break }
-            # 'Int16' { '{0}s'; break }
-            # 'Int16' { '[short]{0}'; break }
-            # 'UInt16' { '{0}us'; break }
-            # 'UInt16' { '[ushort]{0}'; break }
-            # 'UInt32' { '{0}u'; break }
-            # 'UInt32' { '[uint]{0}'; break }
-            # 'UInt64' { '{0}ul'; break }
-            # 'UInt64' { '[ulong]{0}'; break }
-            # 'BigInteger' { '{0}n'; break }
-            default { "[$_]{0}" }
+        $ShouldValidate = !$ForceSkipValidation -and ($this.HasChanged() -or [E911ModuleState]::ForceOnlineCheck)
+        if (!$ShouldValidate) {
+            $this.Warning.Clear()
         }
-        $null = $sb.AppendFormat($fmtString, $value)
+
+        $this._AddCompanyName()
+        $this._AddCompanyTaxId()
+        $this._AddDescription()
+        $this._AddAddress()
+        $this._AddLocation()
+        $this._AddCity()
+        $this._AddStateOrProvince()
+        $this._AddPostalCode()
+        $this._AddCountryOrRegion()
+        $this._AddLatitude()
+        $this._AddLongitude()
+        $this._AddELIN()
+        $this._AddNetworkDescription()
+        $this._AddNetworkObjectType()
+        $this._AddNetworkObjectIdentifier()
+        $this._AddEntryHash()
+
+        if ($null -eq $obj) {
+            return
+        }
+        $WarnType = [WarningType]::InvalidInput
+
+        try {
+            $this._networkObject = [E911ModuleState]::GetOrCreateNetworkObject($obj, $ShouldValidate)
+            # Write-Host "DataRow $($obj.NetworkObjectIdentifier) Found NetworkObject $($this._networkObject.Id) with hash $($this._networkObject.GetHash())"
+        }
+        catch {
+            $this.Warning.Add($WarnType, "NetworkObject Creation Failed: $($_.Exception.Message)")
+        }
+        if ($null -ne $this._networkObject.Warning -and $this._networkObject.Warning.HasWarnings()) {
+            $this.Warning.AddRange($this._networkObject.Warning)
+        }
+    }
+
+    E911DataRow() {
+        $this.Init($null, $false)
+    }
+
+    E911DataRow([hashtable]$hash) {
+        $this.Init(([PSCustomObject]$hash), $false)
+    }
+
+    E911DataRow([PSCustomObject]$obj) {
+        $this.Init($obj, $false)
+    }
+
+    E911DataRow([PSCustomObject]$obj, [bool] $ForceSkipValidation) {
+        $this.Init($obj, $ForceSkipValidation)
+    }
+
+    E911DataRow([E911NetworkObject] $nObj) {
+        $this.Warning = [WarningList]::new($nObj.Warning)
+        $this._networkObject = $nObj
+
+        $this._AddCompanyName()
+        $this._AddCompanyTaxId()
+        $this._AddDescription()
+        $this._AddAddress()
+        $this._AddLocation()
+        $this._AddCity()
+        $this._AddStateOrProvince()
+        $this._AddPostalCode()
+        $this._AddCountryOrRegion()
+        $this._AddLatitude()
+        $this._AddLongitude()
+        $this._AddELIN()
+        $this._AddNetworkDescription()
+        $this._AddNetworkObjectType()
+        $this._AddNetworkObjectIdentifier()
+        $this._AddEntryHash()
+
+        $this.SkipMapsLookup = $nObj._isOnline -and $this.Longitude -ne 0.0 -and $this.Latitude -ne 0.0
+
+        $this._originalRow = [PSCustomObject]@{
+            CompanyName             = "$($this.CompanyName)"
+            CompanyTaxId            = "$($this.CompanyTaxId)"
+            Description             = "$($this.Description)"
+            Address                 = "$($this.Address)"
+            Location                = "$($this.Location)"
+            City                    = "$($this.City)"
+            StateOrProvince         = "$($this.StateOrProvince)"
+            PostalCode              = "$($this.PostalCode)"
+            CountryOrRegion         = "$($this.CountryOrRegion)"
+            Latitude                = "$($this.Latitude)"
+            Longitude               = "$($this.Longitude)"
+            Elin                    = "$($this.Elin)"
+            NetworkDescription      = "$($this.NetworkDescription)"
+            NetworkObjectType       = "$($this.NetworkObjectType)"
+            NetworkObjectIdentifier = "$($this.NetworkObjectIdentifier.ToString())"
+            SkipMapsLookup          = "$($this.SkipMapsLookup)"
+        }
+    }
+
+    [bool] $SkipMapsLookup = $false
+
+    [WarningList] $Warning
+
+    # Public Methods
+    [string] RowName() {
+        if ([string]::IsNullOrEmpty($this._rowName)) {
+            if ($null -eq $this._networkObject) {
+                $this._networkObject = [E911NetworkObject]::new()
+            }
+            $this._rowName = @($this.CompanyName, $this.Address, $this.Location, $this.NetworkObjectType, $this.NetworkObjectIdentifier).Where({ ![string]::IsNullOrEmpty($_) }) -join ':'
+        }
+        return $this._rowName
+    }
+
+    [bool] HasChanged() {
+        return $null -eq $this._originalRow.EntryHash -or $this._originalRow.EntryHash -ne $this.GetHash()
+    }
+
+    [bool] NeedsUpdate() {
+        if ($null -eq $this._networkObject -or $null -eq $this._networkObject._location -or $null -eq $this._networkObject._location._address) {
+            return $true
+        }
+        return $this._networkObject._hasChanged -or $this._networkObject._location._hasChanged -or $this._networkObject._location._address._hasChanged
+    }
+
+    [bool] HasWarnings() {
+        if ($null -ne $this._networkObject -and $this._networkObject.HasWarnings()) {
+            $this.Warning.AddRange($this._networkObject.Warning)
+        }
+        return $null -ne $this.Warning -and $this.Warning.HasWarnings()
+    }
+
+    [bool] ValidationFailed() {
+        if ($null -ne $this._networkObject -and $this._networkObject.ValidationFailed()) {
+            $this.Warning.AddRange($this._networkObject.Warning)
+        }
+        return $this.Warning.ValidationFailed()
+    }
+
+    [int] ValidationFailureCount() {
+        if ($null -ne $this._networkObject -and $this._networkObject.ValidationFailed()) {
+            $this.Warning.AddRange($this._networkObject.Warning)
+        }
+        return $this.Warning.ValidationFailureCount()
+    }
+
+    [string] HouseNumber() {
+        return $this._networkObject._location.HouseNumber()
+    }
+
+    [string] StreetName() {
+        return $this._networkObject._location.StreetName()
+    }
+
+    [Collections.Generic.List[ChangeObject]] GetChangeCommands([PSFunctionHost]$parent) {
+        $changeHelper = [PSFunctionHost]::new($parent, $this.RowName())
+        $changeHelper.WriteVerbose('Getting Commands...')
+        # $parent.WriteVerbose(('{0}: Getting Commands...' -f $this.RowName()))
+
+        $l = [Collections.Generic.List[ChangeObject]]::new()
+        $GetCommands = $true
+        if (!$this.NeedsUpdate() -and (!$this.HasChanged() -and ![E911ModuleState]::ForceOnlineCheck)) {
+            $GetCommands = $false
+        }
+        if ($null -eq $this._networkObject -or $null -eq $this._networkObject._location -or $null -eq $this._networkObject._location._address) {
+            $this.Warning.Add([WarningType]::GeneralFailure, 'Row is missing network object, location, or address')
+        }
+        if ($this.HasWarnings()) {
+            $GetCommands = $false
+        }
+        $d = [DependsOn]::new()
+        if ($GetCommands) {
+            $ac = $this._networkObject._location._address.GetCommand()
+            $addressAdded = $false
+            # if (![string]::IsNullOrEmpty($ac) -and !$this._networkObject._location._isOnline) {
+            if (![string]::IsNullOrEmpty($ac)) {
+                $addressAdded = $true
+                # $parent.WriteVerbose(('{0}: Address new or changed' -f $this.RowName()))
+                $changeHelper.WriteVerbose('Address new or changed')
+                $l.Add([ChangeObject]@{
+                    UpdateType    = [UpdateType]::Online
+                    ProcessInfo   = $ac
+                    DependsOn     = $d
+                    CommandType   = [CommandType]::Address
+                    CommandObject = $this._networkObject._location._address
+                })
+            }
+            if ($addressAdded -or $this._networkObject._location._address._commandGenerated) {
+                $d.Add($this._networkObject._location._address.Id)
+            }
+            $lc = $this._networkObject._location.GetCommand()
+            $locationAdded = $false
+            if (![string]::IsNullOrEmpty($lc)) {
+                $locationAdded = $true
+                # $parent.WriteVerbose(('{0}: Location new or changed' -f $this.RowName()))
+                $changeHelper.WriteVerbose('Location new or changed')
+                $l.Add([ChangeObject]@{
+                        UpdateType    = [UpdateType]::Online
+                        ProcessInfo   = $lc
+                        DependsOn     = $d
+                        CommandType   = [CommandType]::Location
+                        CommandObject = $this._networkObject._location
+                    })
+            }
+            if ($locationAdded -or $this._networkObject._location._commandGenerated) {
+                $d.Add($this._networkObject._location.Id)
+            }
+            $nc = $this._networkObject.GetCommand()
+            $networkAdded = $false
+            if (![string]::IsNullOrEmpty($nc)) {
+                $networkAdded = $false
+                # $parent.WriteVerbose(('{0}: Network Object new or changed!' -f $this.RowName()))
+                $changeHelper.WriteVerbose('Network Object new or changed!')
+                $l.Add([ChangeObject]@{
+                        UpdateType    = [UpdateType]::Online
+                        ProcessInfo   = $nc
+                        DependsOn     = $d
+                        CommandType   = [CommandType]::NetworkObject
+                        CommandObject = $this._networkObject
+                    })
+            }
+            if ($networkAdded -or $this._networkObject._commandGenerated) {
+                $d.Add($this._networkObject.Id)
+            }
+        }
+        $l.Add([ChangeObject]::new($this, $d))
+        # $changeHelper.Complete()
+        return $l
+    }
+
+    [string] ToHashString() {
+        if ([string]::IsNullOrEmpty($this._hashString)) {
+            $SelectParams = @{
+                Property = [E911DataRow]::Properties
+            }
+            $this._hashString = $this._originalRow | Select-Object @SelectParams | ConvertTo-Json -Compress
+        }
+        return $this._hashString
+    }
+    [string] ToString() {
+        $SelectParams = @{
+            Property = [E911DataRow]::Properties + @(
+                @{ Name = 'EntryHash'; Expression = { $this.EntryHash } }, 
+                @{ Name = 'Warning'; Expression = { if ($this.HasWarnings()) { $this.Warning.ToString() } else { '' } } }
+                )
+        }
+        $this._string = $this._originalRow | Select-Object @SelectParams | ConvertTo-Json -Compress
+        $this._lastWarnCount = $this.Warning.Count()
+        return $this._string
+    }
+
+    [string] GetHash() {
+        if ([string]::IsNullOrEmpty($this._hash)) {
+            $this._hash = [Hasher]::GetHash($this.ToHashString())
+        }
+        return $this._hash
+    }
+
+    static [string] GetHash([object] $obj) {
+        $SelectParams = @{
+            Property = [E911DataRow]::Properties
+        }
+        $hashString = $obj | Select-Object @SelectParams | ConvertTo-Json -Compress
+        return [Hasher]::GetHash($hashString)
+    }
+
+    hidden [void] _AddCompanyName() {
+        $this | Add-Member -Name CompanyName -MemberType ScriptProperty -Value {
+            return $this._networkObject._location.CompanyName
+        }
+    }
+    hidden [void] _AddCompanyTaxId() {
+        $this | Add-Member -Name CompanyTaxId -MemberType ScriptProperty -Value {
+            return $this._networkObject._location.CompanyTaxId
+        }
+    }
+    hidden [void] _AddDescription() {
+        $this | Add-Member -Name Description -MemberType ScriptProperty -Value {
+            return $this._networkObject._location.Description
+        }
+    }
+    hidden [void] _AddAddress() {
+        $this | Add-Member -Name Address -MemberType ScriptProperty -Value {
+            return $this._networkObject._location.Address
+        }
+    }
+    hidden [void] _AddLocation() {
+        $this | Add-Member -Name Location -MemberType ScriptProperty -Value {
+            return $this._networkObject._location.Location
+        }
+    }
+    hidden [void] _AddCity() {
+        $this | Add-Member -Name City -MemberType ScriptProperty -Value {
+            return $this._networkObject._location.City
+        }
+    }
+    hidden [void] _AddStateOrProvince() {
+        $this | Add-Member -Name StateOrProvince -MemberType ScriptProperty -Value {
+            return $this._networkObject._location.StateOrProvince
+        }
+    }
+    hidden [void] _AddPostalCode() {
+        $this | Add-Member -Name PostalCode -MemberType ScriptProperty -Value {
+            return $this._networkObject._location.PostalCode
+        }
+    }
+    hidden [void] _AddCountryOrRegion() {
+        $this | Add-Member -Name CountryOrRegion -MemberType ScriptProperty -Value {
+            return $this._networkObject._location.CountryOrRegion
+        }
+    }
+    hidden [void] _AddLatitude() {
+        $this | Add-Member -Name Latitude -MemberType ScriptProperty -Value {
+            return $this._networkObject._location.Latitude
+        }
+    }
+    hidden [void] _AddLongitude() {
+        $this | Add-Member -Name Longitude -MemberType ScriptProperty -Value {
+            return $this._networkObject._location.Longitude
+        }
+    }
+    hidden [void] _AddELIN() {
+        $this | Add-Member -Name Elin -MemberType ScriptProperty -Value {
+            return $this._networkObject._location.Elin
+        }
+    }
+    hidden [void] _AddNetworkDescription() {
+        $this | Add-Member -Name NetworkDescription -MemberType ScriptProperty -Value {
+            return $this._networkObject.Description
+        }
+    }
+    hidden [void] _AddNetworkObjectType() {
+        $this | Add-Member -Name NetworkObjectType -MemberType ScriptProperty -Value {
+            return $this._networkObject.Type
+        }
+    }
+    hidden [void] _AddNetworkObjectIdentifier() {
+        $this | Add-Member -Name NetworkObjectIdentifier -MemberType ScriptProperty -Value {
+            return $this._networkObject.Identifier
+        }
+    }
+    hidden [void] _AddEntryHash() {
+        $this | Add-Member -Name EntryHash -MemberType ScriptProperty -Value {
+            return $this.GetHash()
+        }
     }
 }

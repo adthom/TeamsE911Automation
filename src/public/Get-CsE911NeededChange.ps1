@@ -1,56 +1,74 @@
-function ValueTypeToString {
+using module "..\..\modules\PSClassExtensions\bin\release\PSClassExtensions\PSClassExtensions.psd1"
+
+function Get-CsE911NeededChange {
     [CmdletBinding()]
-    param(
-        [Parameter(Mandatory, Position = 0)]
-        [ValueType]
-        $value,
+    [OutputType([ChangeObject])]
+    param (
+        # Parameter help description
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
+        [PSCustomObject[]]
+        $LocationConfiguration,
 
-        [Parameter(Mandatory)]
-        [StringBuilder]
-        $sb,
-
-        [Parameter()]
-        [int]
-        $indent = 0,
-
-        [Parameter()]
         [switch]
-        $Compress,
-
-        [Parameter()]
-        [int]
-        $indentSize = 4,
-
-        [Parameter()]
-        [char]
-        $indentChar = ' '
+        $ForceOnlineCheck
     )
+
+    begin {
+        $commandHelper = [PSFunctionHost]::StartNew($PSCmdlet, 'Getting Needed Changes', [E911ModuleState]::Interval)
+        $StartingCount = [Math]::Max(0, [E911ModuleState]::MapsQueryCount)
+        Assert-TeamsIsConnected
+        [E911ModuleState]::ForceOnlineCheck = $ForceOnlineCheck
+        # [E911ModuleState]::ShouldClear = $true
+        [E911ModuleState]::InitializeCaches($commandHelper)
+        $Rows = [Collections.Generic.List[E911DataRow]]@()
+        $commandHelper.WriteVerbose('Validating Rows...')
+        $validatingHelper = [PSFunctionHost]::StartNew($commandHelper, 'Validating Rows')
+        $commandHelper.ForceUpdate('Validating Rows...')
+    }
     process {
-        $type = $value.GetType().Name -replace '^System\.', ''
-        $fmtString = switch ($type) {
-            'TimeSpan' { "[$_]'{0}'"; break }
-            { $_.StartsWith('Date') -or $_.StartsWith('Time') } { "[$_]'{0:o}'"; break }
-            { $_.EndsWith('byte') } { "[$_]0X{0:X2}"; break }
-            'Int32' { '{0}'; break }
-            'Int64' { '{0}l'; break }
-            'Double' { '{0:#.0}'; break }
-            'Single' { '[float]{0}'; break }
-            'Decimal' { '{0}d'; break }
-            'BigInteger' { '[bigint]{0}'; break }
-            # # only in 6.2+
-            # 'sbyte' { '0X{0:X2}y'; break }
-            # 'byte' { '0X{0:X2}uy'; break }
-            # 'Int16' { '{0}s'; break }
-            # 'Int16' { '[short]{0}'; break }
-            # 'UInt16' { '{0}us'; break }
-            # 'UInt16' { '[ushort]{0}'; break }
-            # 'UInt32' { '{0}u'; break }
-            # 'UInt32' { '[uint]{0}'; break }
-            # 'UInt64' { '{0}ul'; break }
-            # 'UInt64' { '[ulong]{0}'; break }
-            # 'BigInteger' { '{0}n'; break }
-            default { "[$_]{0}" }
+        foreach ($obj in $LocationConfiguration) {
+            $lc = [E911DataRow]::new($obj)
+            $validatingHelper.Update($true, $lc.RowName())
+            $validatingHelper.WriteVerbose(('{0} Validating object...' -f $lc.RowName()))
+            # We can no longer skip "unchanged" rows because we need to check for changes in other rows that may affect this row
+            if ($lc.HasWarnings()) {
+                $validatingHelper.WriteVerbose(('{0} validation failed with {1} issue{2}!' -f $lc.RowName(), $lc.Warning.Count(), $(if($lc.Warning.Count() -gt 1) {'s'})))
+                [ChangeObject]::new($lc) | Write-Output
+                continue
+            }
+            [void]$Rows.Add($lc)
         }
-        $null = $sb.AppendFormat($fmtString, $value)
+    }
+
+    end {
+        try {
+            $validatingHelper.Complete()
+            $commandHelper.WriteVerbose('Processing Rows...')
+            $commandHelper.ForceUpdate('Processing Rows...')
+            $processingHelper = [PSFunctionHost]::StartNew($commandHelper, 'Processing Rows')
+            $processingHelper.Total = $Rows.Count
+            foreach ($Row in $Rows) {
+                $processingHelper.Update($true, $Row.RowName())
+                if ($Row.HasWarnings()) {
+                    $processingHelper.WriteVerbose(('{0} validation failed with {1} issue{2}!' -f $Row.RowName(), $Row.Warning.Count(), $(if($Row.Warning.Count() -gt 1) {'s'})))
+                    [ChangeObject]::new($Row) | Write-Output
+                    continue
+                }
+                $Commands = $Row.GetChangeCommands($processingHelper)
+                foreach ($Command in $Commands) {
+                    if ($Command.UpdateType -eq [UpdateType]::Online) {
+                        $Command.CommandObject._commandGenerated = $true
+                    }
+                    $Command | Write-Output
+                }
+            }
+            $commandHelper.WriteVerbose(('Performed {0} Maps Queries' -f ([E911ModuleState]::MapsQueryCount - $StartingCount)))
+            $commandHelper.WriteVerbose('Finished')
+        }
+        finally {
+            if ($null -ne $commandHelper) {
+                $commandHelper.Dispose()
+            }
+        }
     }
 }

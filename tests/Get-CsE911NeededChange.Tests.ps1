@@ -4,6 +4,8 @@ Describe 'Get-CsE911NeededChange' {
         $ModuleRoot = Split-Path -Path (Split-Path -Path $PSCommandPath -Parent) -Parent
         $ModuleName = 'TeamsE911Automation'
 
+        Get-Module MicrosoftTeams | Remove-Module
+
         # import secrets and connect
         . "${ModuleRoot}\tests\secrets.ps1"
 
