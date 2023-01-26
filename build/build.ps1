@@ -61,7 +61,13 @@ foreach ($file in $buildFiles) { $null = $hashFiles.Add($file.FullName) }
 # check to see what needs to be re-built
 $buildMetadata = Get-ChildItem -Path $bldMeta -ErrorAction SilentlyContinue
 if ($null -ne $buildMetadata) {
-    $buildHashes = Import-PowerShellDataFile -Path $buildMetadata.FullName -ErrorAction SilentlyContinue
+    try {
+        $buildHashes = Import-PowerShellDataFile -Path $buildMetadata.FullName -ErrorAction Stop
+    }
+    catch {
+        Write-Warning $_.Exception.Message
+        $buildHashes = $null
+    }
 }
 if ($null -eq $buildHashes) {
     $buildHashes = @{}
@@ -188,16 +194,17 @@ foreach ($buildFile in $buildFiles) {
     $parent = [IO.Path]::GetDirectoryName($rel)
     $pathParts = $parent.Split([IO.Path]::DirectorySeparatorChar)
     $i = $pathParts.Length - 1
-    $shouldProcess = $true
-    while ($i -gt 0) {
+    $shouldDotSource = $true
+    while ($i -ge 0) {
         $parent = $pathParts[0..$i] -join [IO.Path]::DirectorySeparatorChar
         $parentName = $pathParts[$i]
         if ((Test-Path ([IO.Path]::Combine($PSScriptRoot,[IO.Path]::Combine($parent, "$parentName.psd1")))) -or (Test-Path ([IO.Path]::Combine($PSScriptRoot,[IO.Path]::Combine($parent, "$parentName.psm1"))))) {
-            $shouldProcess = $false
+            $shouldDotSource = $false
             break
         }
+        $i--
     }
-    if ($shouldProcess) {
+    if ($shouldDotSource) {
         $null = . $buildFile
     }
 }
