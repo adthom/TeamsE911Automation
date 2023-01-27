@@ -395,6 +395,7 @@ class E911ModuleState {
         try {
             [E911ModuleState]::MapsQueryCount = 0
             $flushProcess.WriteVerbose('Flushing Caches...')
+            [LisCache]::Clear()
             $OnlineAddrCount = [E911ModuleState]::OnlineAddresses.Count
             $AddrCount = [E911ModuleState]::Addresses.Count
             $OnlineLocCount = [E911ModuleState]::OnlineLocations.Count

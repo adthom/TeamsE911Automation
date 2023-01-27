@@ -14,6 +14,7 @@ function Get-CsE911NeededChange {
     )
 
     begin {
+        [PerfLogger]::Reset()
         $commandHelper = [PSFunctionHost]::StartNew($PSCmdlet, 'Getting Needed Changes', [E911ModuleState]::Interval)
         $StartingCount = [Math]::Max(0, [E911ModuleState]::MapsQueryCount)
         Assert-TeamsIsConnected
@@ -39,10 +40,11 @@ function Get-CsE911NeededChange {
             [void]$Rows.Add($lc)
         }
     }
-
     end {
         try {
-            $validatingHelper.Complete()
+            if ($null -ne $validatingHelper) {
+                $validatingHelper.Dispose()
+            }
             $commandHelper.WriteVerbose('Processing Rows...')
             $commandHelper.ForceUpdate('Processing Rows...')
             $processingHelper = [PSFunctionHost]::StartNew($commandHelper, 'Processing Rows')
@@ -70,5 +72,6 @@ function Get-CsE911NeededChange {
                 $commandHelper.Dispose()
             }
         }
+        $Global:PerfHistory = [PerfLogger]::History
     }
 }

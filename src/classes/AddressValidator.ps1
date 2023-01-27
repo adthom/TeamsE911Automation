@@ -224,16 +224,7 @@ class AddressValidator {
     }
     [string] _getAddressInMapsQueryForm([E911Address] $Address) {
         $sb = [StringBuilder]::new()
-        $sb.AppendJoin(' ', $Address.Address, $Address.City, $Address.StateOrProvince, $Address.PostalCode)
-        # $sb.Append($Address.Address)
-        # $sb.Append(' ')
-        # $sb.Append($Address.City)
-        # $sb.Append(' ')
-        # $sb.Append($Address.StateOrProvince)
-        # if (![string]::IsNullOrEmpty($Address.PostalCode)) {
-        #     $sb.Append(' ')
-        #     $sb.Append($Address.PostalCode)
-        # }
+        $sb.Append((@($Address.Address, $Address.City, $Address.StateOrProvince, $Address.PostalCode) -join ' '))
         do {
             # remove all double spaces until there are no more
             $len = $sb.Length

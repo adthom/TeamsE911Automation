@@ -102,16 +102,21 @@ class LisObject {
         return [LisObject]::_get($type, $command, '', @{}, $ForceUpdate)
     }
     hidden static [List[LisObject]] _get([Type] $type, [CommandInfo] $command, [string] $identifier, [hashtable] $additionalParams, [bool] $ForceUpdate) {
+        [PerfLogger]::Enter()        
         $params = @{ ErrorAction = 'Stop' }
         foreach ($key in $additionalParams.Keys) {
             $params[$key] = $additionalParams[$key]
         }
         $PointQuery = ![string]::IsNullOrEmpty($identifier)
         if ($PointQuery) {
-            if ([CachedLisObject]::IsMissing($type, $identifier, $ForceUpdate)) { return @() }
+            if ([CachedLisObject]::IsMissing($type, $identifier, $ForceUpdate)) { 
+                return @()
+            }
             # if ($additionalParams.Keys.Count -eq 0) {
             $Result = [CachedLisObject]::GetFromCache($type, $identifier, $ForceUpdate)
-            if ($null -ne $Result -and !$ForceUpdate) { return [LisObject[]]@($Result) }
+            if ($null -ne $Result -and !$ForceUpdate) {
+                return [LisObject[]]@($Result)
+            }
             # }
             $idParams = $type::IdentifierParams($identifier)
             foreach ($key in $idParams.Keys) {
@@ -293,7 +298,8 @@ class LisAddressBase : LisObject {
 
     static [string] ConvertAddressPartsToAddress([LisAddressBase] $address) {
         $addressSb = [StringBuilder]::new()
-        $addressSb.AppendJoin(' ', $address.HouseNumber, $address.HouseNumberSuffix, $address.PreDirectional, $address.StreetName, $address.StreetSuffix, $address.PostDirectional)
+        # $addressSb.AppendJoin(' ', $address.HouseNumber, $address.HouseNumberSuffix, $address.PreDirectional, $address.StreetName, $address.StreetSuffix, $address.PostDirectional)
+        $addressSb.Append((@($address.HouseNumber, $address.HouseNumberSuffix, $address.PreDirectional, $address.StreetName, $address.StreetSuffix, $address.PostDirectional) -join ' '))
         do {
             # remove all double spaces until there are no more
             $len = $addressSb.Length
@@ -513,8 +519,8 @@ class LisLocation : LisAddressBase {
         }
         {
             param($l1, $l2)
-            $a1 = $l1.GetAddress()
-            $a2 = $l2.GetAddress()
+            $a1 = $l1.GetCivicAddress()
+            $a2 = $l2.GetCivicAddress()
             $l1TestSuccessful = $a1.IsInUse()
             $l2TestSuccessful = $a2.IsInUse()
             if ($l1TestSuccessful -and !$l2TestSuccessful) { return $l1 }
@@ -523,8 +529,8 @@ class LisLocation : LisAddressBase {
         }
         {
             param($l1, $l2)
-            $a1 = $l1.GetAddress()
-            $a2 = $l2.GetAddress()
+            $a1 = $l1.GetCivicAddress()
+            $a2 = $l2.GetCivicAddress()
             $a1Count = $a1.GetAssociatedNetworkObjects().Count
             $a2Count = $a2.GetAssociatedNetworkObjects().Count
             if ($a1Count -gt $a2Count) { return $l1 }
@@ -533,8 +539,8 @@ class LisLocation : LisAddressBase {
         }
         {
             param($l1, $l2)
-            $a1 = $l1.GetAddress()
-            $a2 = $l2.GetAddress()
+            $a1 = $l1.GetCivicAddress()
+            $a2 = $l2.GetCivicAddress()
             $a1Count = $a1.NumberOfVoiceUsers + $a1.NumberOfTelephoneNumbers
             $a2Count = $a2.NumberOfVoiceUsers + $a2.NumberOfTelephoneNumbers
             if ($a1Count -gt $a2Count) { return $l1 }

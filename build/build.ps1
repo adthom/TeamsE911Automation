@@ -410,6 +410,11 @@ foreach ($file in $allFiles) {
     }
 }
 
+# clean the release folder
+if ((Test-Path $releasePath)) {
+    $null = Remove-Item -Path $releasePath -Recurse -Force -Confirm:$false -ErrorAction Stop
+}
+
 $first = $true
 $usingStatements = $usingStatements | SortUsings
 foreach ($using in $usingStatements) {
@@ -441,6 +446,62 @@ if ($BuildType -eq 'Debug') {
     }
 }
 $Manifest.FunctionsToExport = [string[]]$publicFunctions
+
+if ($NestedModules.Count -gt 0) {
+    if ($null -eq $Manifest.ScriptsToProcess) {
+        $Manifest.ScriptsToProcess = @()
+    }
+    $importScriptPath = [IO.Path]::Combine($releaseModulesPath, 'ImportNestedModules.ps1')
+
+    $importScriptSb = [StringBuilder]::new()
+    foreach ($key in $NestedModules.Keys) {
+        $spec = $NestedModules[$key]
+        # get the psd1 file name if it exists
+        
+        $sourceModule = $ModulesToCopy.Where({$_.IndexOf($spec.Name) -gt -1})[0]
+        $currentModule = [IO.Path]::GetFileNameWithoutExtension($sourceModule)
+        $currentDir = [IO.Path]::Combine([IO.Path]::GetDirectoryName($sourceModule), $currentModule)
+        $currentPsd1 = [IO.Path]::Combine($currentDir, $currentModule + '.psd1')
+        $currentPsm1 = [IO.Path]::Combine($currentDir, $currentModule + '.psm1')
+        $ModulePath = if ((Test-Path $currentPsd1)) {
+            [IO.Path]::GetRelativePath($releaseModulesPath, [IO.Path]::Combine($releaseModulesPath, $currentModule, $currentModule + '.psd1'))
+        }
+        elseif ((Test-Path $currentPsm1)) {
+            [IO.Path]::GetRelativePath($releaseModulesPath,[IO.Path]::Combine($releaseModulesPath, $currentModule, $currentModule + '.psm1'))
+        }
+        else {
+            $spec.Name
+        }
+        $ModulePath = '$PSScriptRoot\' + $ModulePath
+        $null = $importScriptSb.Append('Import-Module -Name "')
+        $null = $importScriptSb.Append($ModulePath)
+        $null = $importScriptSb.Append('"')
+        if ($spec.RequiredVersion) {
+            $null = $importScriptSb.Append(' -RequiredVersion ''')
+            $null = $importScriptSb.Append($spec.RequiredVersion)
+            $null = $importScriptSb.Append('''')
+        }
+        elseif ($spec.Version) {
+            $null = $importScriptSb.Append(' -Version ''')
+            $null = $importScriptSb.Append($spec.Version)
+            $null = $importScriptSb.Append('''')
+        }
+        elseif ($spec.MaximumVersion) {
+            $null = $importScriptSb.Append(' -MaximumVersion ''')
+            $null = $importScriptSb.Append($spec.MaximumVersion)
+            $null = $importScriptSb.Append('''')
+        }
+        $null = $importScriptSb.AppendLine()
+        $RequiredModules.Where({$_.Name -eq $spec.Name}) | ForEach-Object {
+            $null = $RequiredModules.Remove($_)
+        }
+    }
+
+    $importText = $importScriptSb.ToString()
+    $null = New-Item -Path $importScriptPath -ItemType File -Force -ErrorAction Stop
+    [IO.File]::WriteAllText($importScriptPath, $importText)
+    $Manifest.ScriptsToProcess += '.\' + [IO.Path]::GetRelativePath($releasePath, $importScriptPath)
+}
 
 foreach ($required in $Manifest.RequiredModules) {
     $null = $RequiredModules.Add($required)
@@ -486,11 +547,6 @@ if ($null -eq $Manifest.CmdletsToExport) { $Manifest.CmdletsToExport = @() }
 if ($null -eq $Manifest.VariablesToExport) { $Manifest.VariablesToExport = @() }
 if ($null -eq $Manifest.AliasesToExport) { $Manifest.AliasesToExport = @() }
 
-# clean the release folder
-if ((Test-Path $releasePath)) {
-    $null = Remove-Item -Path $releasePath -Recurse -Force -Confirm:$false -ErrorAction Stop
-}
-
 $null = New-Item -Path $releasePath -ItemType Directory -Force -ErrorAction Stop
 $moduleBodyString = $moduleBodySb.ToString() -replace '(\r?\n)+$', ''
 if ((Test-Path $formattingRulesPath)) {
@@ -531,7 +587,13 @@ $CurrentPublicFunctions = $publicFunctions.Count
 if ((Get-Module -Name $ModuleName)) {
     $null = Remove-Module -Name $ModuleName -Force -ErrorAction Stop
 }
-$TempModule = Import-Module $releasePath -PassThru
+try {
+    $TempModule = Import-Module $releasePath -PassThru -ErrorAction Stop | Where-Object { $_.Name -eq $ModuleName }
+}
+catch {
+    throw
+}
+if ($null -eq $TempModule) { return }
 # Generate Proxy Functions to load into module state after classes are declared
 $ModuleAssembly = & $TempModule { [AppDomain]::CurrentDomain.GetAssemblies().Where({ $_.GetCustomAttributes($false).Where({ $_.TypeId -eq [DynamicClassImplementationAssemblyAttribute] -and ($null -eq $_.ScriptFile -or $_.ScriptFile.StartsWith($releasePath)) }).Count -gt 0 }) | 
         Sort-Object -Property { [Version]($_.FullName -replace '^.*Version=([^,]+),.*$', '$1') } -Descending | Select-Object -First 1 }

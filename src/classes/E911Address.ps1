@@ -318,7 +318,8 @@ class E911Address {
             $null = $addressSb.Append($Online.Address.Trim())
         }
         else {
-            $null = $addressSb.AppendJoin(' ', $Online.HouseNumber, $Online.HouseNumberSuffix, $Online.PreDirectional, $Online.StreetName, $Online.StreetSuffix, $Online.PostDirectional)
+            # $null = $addressSb.AppendJoin(' ', $Online.HouseNumber, $Online.HouseNumberSuffix, $Online.PreDirectional, $Online.StreetName, $Online.StreetSuffix, $Online.PostDirectional)
+            $null = $addressSb.Append((@($Online.HouseNumber, $Online.HouseNumberSuffix, $Online.PreDirectional, $Online.StreetName, $Online.StreetSuffix, $Online.PostDirectional) -join ' '))
         }
         do {
             # remove all double spaces until there are no more

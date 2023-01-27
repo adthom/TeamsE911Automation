@@ -1,4 +1,5 @@
 # need to ensure Pester is versioned appropriately
+#Requires -Modules @{ModuleName='Pester';ModuleVersion='5.0.0'}
 Describe 'Get-CsE911NeededChange' {
     BeforeAll {
         $ModuleRoot = Split-Path -Path (Split-Path -Path $PSCommandPath -Parent) -Parent
@@ -839,10 +840,10 @@ Describe 'Get-CsE911NeededChange' {
             }
             # $Hash = InModuleScope -ModuleName $ModuleName { [E911DataRow]::new($Row).GetHash() }
             $Hash = InModuleScope -ModuleName $ModuleName { [E911DataRow]::GetHash($Row) }
-            InModuleScope -ModuleName $ModuleName { Reset-CsE911Cache }
+            InModuleScope -ModuleName $ModuleName { Reset-CsE911Cache  }
             $Row.EntryHash = $Hash
             $Row.Location += ' changed'
-            $Changes = @(Get-CsE911NeededChange -LocationConfiguration $Row)
+            $Changes = @(Get-CsE911NeededChange -LocationConfiguration $Row )
             $SourceCommands = $Changes.Where({ $_.UpdateType -eq 'Source' })
             $ActualCommands = $Changes.Where({ $_.UpdateType -eq 'Online' })
         }

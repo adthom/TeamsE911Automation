@@ -39,7 +39,7 @@ class E911NetworkObject {
         $this._commandGenerated = $false
     }
 
-    hidden Init([PSCustomObject]$obj, [bool] $ShouldValidate) {
+    hidden [void] Init([PSCustomObject]$obj, [bool] $ShouldValidate) {
         $NetworkObjectType = $obj.NetworkObjectType
         $NetworkObjectIdentifier = $obj.NetworkObjectIdentifier
         if ($ShouldValidate) {
@@ -312,7 +312,6 @@ class E911NetworkObject {
                 $Value1.LocationId -eq $Value2.LocationId
             }
         }
-
         return $LocationsEqual
     }
 
