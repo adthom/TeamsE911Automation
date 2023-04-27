@@ -1,0 +1,111 @@
+CompanyName
+  required
+  string
+
+CompanyTaxId
+  string
+
+Description
+  string
+
+Location
+  if left empty, will use the default location for the address
+  string
+
+Address
+  required
+  the first line of a location address (includes HouseNumber, HouseNumberSuffix, PreDirectional, StreetName, StreetSuffix, PostDirectional)
+  e.g.: 123 Any Street
+  e.g.: 123 N Any St
+  e.g.: 123B Any St. SW
+
+City
+  required
+  string
+
+StateOrProvince
+  required
+  string
+
+PostalCode
+  required if SkipMapsLookup is true
+  string
+
+CountryOrRegion
+  required
+  valid ISO 3166-1 alpha-2 code
+  e.g.: US
+  e.g.: PR
+  e.g.: CA
+
+Latitude
+  required if SkipMapsLookup is true or Longitude is set
+  float
+  between 90.0 and -90.0
+
+Longitude
+  required if SkipMapsLookup is true or Latitude is set
+  float
+  between 180.0 and -180.0
+  
+ELIN
+  string
+
+NetworkDescription
+  string
+
+NetworkObjectType
+  required
+  can be one of:
+    Switch
+    Port
+    Subnet
+    WirelessAccessPoint
+
+NetworkObjectIdentifier
+  required
+  format depends on NetworkObjectType:
+    case Switch:
+      ChassisId (some form of physical address parsable string, see appendix)
+      e.g.: DE-AD-BE-EF-FF-FF
+    case Port:
+      ChassisId (some form of physical address parsable string, see appendix)
+      PortId (string)
+      delimited by semi-colon
+      e.g.: DE-AD-BE-EF-FF-FF;g1
+    case Subnet:
+      Subnet Id (no mask)
+      e.g.: 172.16.1.0
+    case WirelessAccessPoint:
+      BSSID (some form of physical address parsable string, see appendix)
+      e.g.: DE-AD-BE-EF-FF-FF
+
+SkipMapsLookup
+  boolean string
+  anything other than "true" (with any casing) will be parsed as FALSE
+  e.g.: trUe   => parsed to TRUE
+  e.g.: True   => parsed to TRUE
+  e.g.: t   => parsed to FALSE
+  e.g.: 1   => parsed to FALSE
+  e.g.: 0   => parsed to FALSE
+
+EntryHash
+  base64 encoded hash of row
+  do not change manually
+  will be defined via the workflow, be sure to write it back to the source data
+  used to prevent re-processing of unchanged rows on subsequent runs
+
+Warning
+  string
+  do not change manually
+  will be reset on each run via the workflow, be sure to write it back to the source data
+  any warning values preventing the row from being processed
+
+appendix:
+valid physical address parsable string formats:
+  001122334455
+  00-11-22-33-44-55
+  0011.2233.4455 (only if using pwsh)
+  00:11:22:33:44:55 (only if using pwsh)
+  F0-E1-D2-C3-B4-A5
+  f0-e1-d2-c3-b4-a5 (only if using pwsh)
