@@ -1,4 +1,0 @@
-enum UpdateType {
-    Source
-    Online
-}

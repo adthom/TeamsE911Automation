@@ -1,0 +1,6 @@
+[submodule "modules/TeamsE911Internal"]
+	path = modules/TeamsE911Internal
+	url = https://github.com/adthom/TeamsE911Internal.git
+[submodule "modules/PSClassExtensions"]
+	path = modules/PSClassExtensions
+	url = https://github.com/adthom/PSClassExtensions.git
