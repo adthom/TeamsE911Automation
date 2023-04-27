@@ -1,73 +1,25 @@
 # using module ..\..\modules\PSClassExtensions\bin\debug\PSClassExtensions
 # WarningType
 # E911Address
+# AddressFormatter
+# PSClassProperty
+
 using namespace System.Web
 using namespace System.Text
+using namespace System.Text.RegularExpressions
 using namespace System.Net.Http
 using namespace System.Collections.Generic
 
 class AddressValidator {
-    [string[]] $NumberWords = @('zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty')
-    [HashSet[string]] $Abbreviations = @('alley', 'allee', 'ally', 'anex', 'annex', 'annx', 'arcade', 'avenue', 'av', 'aven', 'avenu', 'avn', 'avnue', 'bayou', 'bayoo', 'beach', 'bend', 'bluff', 'bluf', 'bluffs', 'bot', 'bottm', 'bottom', 'boulevard', 'boul', 'boulv', 'branch', 'brnch', 'bridge', 'brdge', 'brook', 'brooks', 'burg', 'burgs', 'bypass', 'bypa', 'bypas', 'byps', 'camp', 'cmp', 'canyn', 'canyon', 'cnyn', 'cape', 'causeway', 'causwa', 'center', 'cen', 'cent', 'centr', 'centre', 'cnter', 'cntr', 'centers', 'circle', 'circ', 'circl', 'crcl', 'crcle', 'circles', 'cliff', 'cliffs', 'club', 'common', 'commons', 'corner', 'corners', 'course', 'court', 'courts', 'cove', 'coves', 'creek', 'crescent', 'crsent', 'crsnt', 'crest', 'crossing', 'crssng', 'crossroad', 'crossroads', 'curve', 'dale', 'dam', 'divide', 'div', 'dvd', 'drive', 'driv', 'drv', 'drives', 'estate', 'estates', 'expressway', 'exp', 'expr', 'express', 'expw', 'extension', 'extn', 'extnsn', 'extensions', 'falls', 'ferry', 'frry', 'field', 'fields', 'flat', 'flats', 'ford', 'fords', 'forest', 'forests', 'forge', 'forg', 'forges', 'fork', 'forks', 'fort', 'frt', 'freeway', 'freewy', 'frway', 'frwy', 'garden', 'gardn', 'grden', 'grdn', 'gardens', 'grdns', 'gateway', 'gatewy', 'gatway', 'gtway', 'glen', 'glens', 'green', 'greens', 'grove', 'grov', 'groves', 'harbor', 'harb', 'harbr', 'hrbor', 'harbors', 'haven', 'heights', 'ht', 'highway', 'highwy', 'hiway', 'hiwy', 'hway', 'hill', 'hills', 'hollow', 'hllw', 'hollows', 'holws', 'inlet', 'island', 'islnd', 'islands', 'islnds', 'isles', 'junction', 'jction', 'jctn', 'junctn', 'juncton', 'junctions', 'jctns', 'key', 'keys', 'knoll', 'knol', 'knolls', 'lake', 'lakes', 'landing', 'lndng', 'lane', 'light', 'lights', 'loaf', 'lock', 'locks', 'lodge', 'ldge', 'lodg', 'loops', 'manor', 'manors', 'meadow', 'meadows', 'mdw', 'medows', 'mill', 'mills', 'mission', 'missn', 'mssn', 'motorway', 'mount', 'mnt', 'mountain', 'mntain', 'mntn', 'mountin', 'mtin', 'mountains', 'mntns', 'neck', 'orchard', 'orchrd', 'ovl', 'overpass', 'prk', 'parks', 'parkway', 'parkwy', 'pkway', 'pky', 'parkways', 'pkwys', 'passage', 'paths', 'pikes', 'pine', 'pines', 'place', 'plain', 'plains', 'plaza', 'plza', 'point', 'points', 'port', 'ports', 'prairie', 'prr', 'radial', 'rad', 'radiel', 'ranch', 'ranches', 'rnchs', 'rapid', 'rapids', 'rest', 'ridge', 'rdge', 'ridges', 'river', 'rvr', 'rivr', 'road', 'roads', 'route', 'shoal', 'shoals', 'shore', 'shoar', 'shores', 'shoars', 'skyway', 'spring', 'spng', 'sprng', 'springs', 'spngs', 'sprngs', 'spurs', 'square', 'sqr', 'sqre', 'squ', 'squares', 'sqrs', 'station', 'statn', 'stn', 'stravenue', 'strav', 'straven', 'stravn', 'strvn', 'strvnue', 'stream', 'streme', 'street', 'strt', 'str', 'streets', 'summit', 'sumit', 'sumitt', 'terrace', 'terr', 'throughway', 'trace', 'traces', 'track', 'tracks', 'trk', 'trks', 'trafficway', 'trail', 'trails', 'trls', 'trailer', 'trlrs', 'tunnel', 'tunel', 'tunls', 'tunnels', 'tunnl', 'turnpike', 'trnpk', 'turnpk', 'underpass', 'union', 'unions', 'valley', 'vally', 'vlly', 'valleys', 'viaduct', 'vdct', 'viadct', 'view', 'views', 'village', 'vill', 'villag', 'villg', 'villiage', 'villages', 'ville', 'vista', 'vist', 'vst', 'vsta', 'walks', 'wy', 'well', 'wells', 'northwest', 'northeast', 'southwest', 'southeast', 'n', 'e', 'ne', 'w', 'nw', 's', 'se', 'sw', 'south', 'north', 'eighth', 'second', 'west', 'sixth', 'ninth', 'east', 'tenth', 'fourth', 'third', 'seventh', 'first', 'fifth')
-    [hashtable] $s_replacementHash = @{aly = @('alley', 'allee', 'ally'); anx = @('anex', 'annex', 'annx'); arc = @('arcade'); ave = @('avenue', 'av', 'aven', 'avenu', 'avn', 'avnue'); byu = @('bayou', 'bayoo'); bch = @('beach'); bnd = @('bend'); blf = @('bluff', 'bluf'); blfs = @('bluffs'); btm = @('bot', 'bottm', 'bottom'); blvd = @('boulevard', 'boul', 'boulv'); br = @('branch', 'brnch'); brg = @('bridge', 'brdge'); brk = @('brook'); brks = @('brooks'); bg = @('burg'); bgs = @('burgs'); byp = @('bypass', 'bypa', 'bypas', 'byps'); cp = @('camp', 'cmp'); cyn = @('canyn', 'canyon', 'cnyn'); cpe = @('cape'); cswy = @('causeway', 'causwa'); ctr = @('center', 'cen', 'cent', 'centr', 'centre', 'cnter', 'cntr'); ctrs = @('centers'); cir = @('circle', 'circ', 'circl', 'crcl', 'crcle'); cirs = @('circles'); clf = @('cliff'); clfs = @('cliffs'); clb = @('club'); cmn = @('common'); cmns = @('commons'); cor = @('corner'); cors = @('corners'); crse = @('course'); ct = @('court'); cts = @('courts'); cv = @('cove'); cvs = @('coves'); crk = @('creek'); cres = @('crescent', 'crsent', 'crsnt'); crst = @('crest'); xing = @('crossing', 'crssng'); xrd = @('crossroad'); xrds = @('crossroads'); curv = @('curve'); dl = @('dale'); dm = @('dam'); dv = @('divide', 'div', 'dvd'); dr = @('drive', 'driv', 'drv'); drs = @('drives'); est = @('estate'); ests = @('estates'); expy = @('expressway', 'exp', 'expr', 'express', 'expw'); ext = @('extension', 'extn', 'extnsn'); exts = @('extensions'); fls = @('falls'); fry = @('ferry', 'frry'); fld = @('field'); flds = @('fields'); flt = @('flat'); flts = @('flats'); frd = @('ford'); frds = @('fords'); frst = @('forest', 'forests'); frg = @('forge', 'forg'); frgs = @('forges'); frk = @('fork'); frks = @('forks'); ft = @('fort', 'frt'); fwy = @('freeway', 'freewy', 'frway', 'frwy'); gdn = @('garden', 'gardn', 'grden', 'grdn'); gdns = @('gardens', 'grdns'); gtwy = @('gateway', 'gatewy', 'gatway', 'gtway'); gln = @('glen'); glns = @('glens'); grn = @('green'); grns = @('greens'); grv = @('grove', 'grov'); grvs = @('groves'); hbr = @('harbor', 'harb', 'harbr', 'hrbor'); hbrs = @('harbors'); hvn = @('haven'); hts = @('heights', 'ht'); hwy = @('highway', 'highwy', 'hiway', 'hiwy', 'hway'); hl = @('hill'); hls = @('hills'); holw = @('hollow', 'hllw', 'hollows', 'holws'); inlt = @('inlet'); is = @('island', 'islnd'); iss = @('islands', 'islnds'); isle = @('isles'); jct = @('junction', 'jction', 'jctn', 'junctn', 'juncton'); jcts = @('junctions', 'jctns'); ky = @('key'); kys = @('keys'); knl = @('knoll', 'knol'); knls = @('knolls'); lk = @('lake'); lks = @('lakes'); lndg = @('landing', 'lndng'); ln = @('lane'); lgt = @('light'); lgts = @('lights'); lf = @('loaf'); lck = @('lock'); lcks = @('locks'); ldg = @('lodge', 'ldge', 'lodg'); loop = @('loops'); mnr = @('manor'); mnrs = @('manors'); mdw = @('meadow'); mdws = @('meadows', 'mdw', 'medows'); ml = @('mill'); mls = @('mills'); msn = @('mission', 'missn', 'mssn'); mtwy = @('motorway'); mt = @('mount', 'mnt'); mtn = @('mountain', 'mntain', 'mntn', 'mountin', 'mtin'); mtns = @('mountains', 'mntns'); nck = @('neck'); orch = @('orchard', 'orchrd'); oval = @('ovl'); opas = @('overpass'); park = @('prk', 'parks'); pkwy = @('parkway', 'parkwy', 'pkway', 'pky', 'parkways', 'pkwys'); psge = @('passage'); path = @('paths'); pike = @('pikes'); pne = @('pine'); pnes = @('pines'); pl = @('place'); pln = @('plain'); plns = @('plains'); plz = @('plaza', 'plza'); pt = @('point'); pts = @('points'); prt = @('port'); prts = @('ports'); pr = @('prairie', 'prr'); radl = @('radial', 'rad', 'radiel'); rnch = @('ranch', 'ranches', 'rnchs'); rpd = @('rapid'); rpds = @('rapids'); rst = @('rest'); rdg = @('ridge', 'rdge'); rdgs = @('ridges'); riv = @('river', 'rvr', 'rivr'); rd = @('road'); rds = @('roads'); rte = @('route'); shl = @('shoal'); shls = @('shoals'); shr = @('shore', 'shoar'); shrs = @('shores', 'shoars'); skwy = @('skyway'); spg = @('spring', 'spng', 'sprng'); spgs = @('springs', 'spngs', 'sprngs'); spur = @('spurs'); sq = @('square', 'sqr', 'sqre', 'squ'); sqs = @('squares', 'sqrs'); sta = @('station', 'statn', 'stn'); stra = @('stravenue', 'strav', 'straven', 'stravn', 'strvn', 'strvnue'); strm = @('stream', 'streme'); st = @('street', 'strt', 'str'); sts = @('streets'); smt = @('summit', 'sumit', 'sumitt'); ter = @('terrace', 'terr'); trwy = @('throughway'); trce = @('trace', 'traces'); trak = @('track', 'tracks', 'trk', 'trks'); trfy = @('trafficway'); trl = @('trail', 'trails', 'trls'); trlr = @('trailer', 'trlrs'); tunl = @('tunnel', 'tunel', 'tunls', 'tunnels', 'tunnl'); tpke = @('turnpike', 'trnpk', 'turnpk'); upas = @('underpass'); un = @('union'); uns = @('unions'); vly = @('valley', 'vally', 'vlly'); vlys = @('valleys'); via = @('viaduct', 'vdct', 'viadct'); vw = @('view'); vws = @('views'); vlg = @('village', 'vill', 'villag', 'villg', 'villiage'); vlgs = @('villages'); vl = @('ville'); vis = @('vista', 'vist', 'vst', 'vsta'); walk = @('walks'); way = @('wy'); wl = @('well'); wls = @('wells') }
-    [Lazy[Dictionary[HashSet[string], string]]] $s_replacementdictionary = [Lazy[Dictionary[HashSet[string], string]]]::new(
-        [Func[Dictionary[HashSet[string], string]]] { 
-            $dict = [Dictionary[HashSet[string], string]]@{}
-            foreach ($key in $this.s_replacementHash.Keys) {
-                $dict[[HashSet[string]]([string[]]$this.s_replacementHash[$key])] = $key
-            }
-            return $dict
-        })
+    [AddressFormatter] $Formatter = [AddressFormatter]::Default
 
-    [string] GetReplacement([string] $item) {
-        if ($this.Abbreviations.Contains($item)) {
-            $key = $this.AbbreviationLookup.Keys.Where({ $_.Contains($item) }, 'First', 1)[0]
-            if ($null -eq $key) {
-                return $item
-            }
-            return $this.AbbreviationLookup[$key]
-        }
-        return $item
-    }
-    [List[string]] GetCleanAddressParts([string] $Address) {
-        $Address = $Address.ToLowerInvariant()
-        $AddressTokens = [List[string]][string[]]($Address -split '\b').Where({ $_ -match '\w' }).ForEach({ $_.Trim() })
-        for ($i = 0; $i -lt $AddressTokens.Count; $i++) {
-            $CurrentToken = $AddressTokens[$i]
-            if ($this.Abbreviations.Contains($CurrentToken)) {
-                # replace potential abbreviation with common string
-                if ($CurrentToken -match '^(?:n(?:orth)?|s(?:outh)?|e(?:ast)?|w(?:est)?|(?:(?:n(?:orth)?|s(?:outh)?)(?:e(?:ast)?|w(?:est)?)))$') {
-                    # handle directional indicators, since they could split into multiple strings
-                    $CurrentToken = $CurrentToken -replace '^n(orth)?', 'north'
-                    $CurrentToken = $CurrentToken -replace '^s(outh)?', 'south'
-                    $CurrentToken = $CurrentToken -replace 'e(ast)?$', 'east'
-                    $CurrentToken = $CurrentToken -replace 'w(est)$', 'west'
-                    if ($CurrentToken.Length -gt 5 -and ($CurrentToken.StartsWith('north') -or $CurrentToken.StartsWith('south'))) {
-                        # split northeast/southeast/northwest/southwest into 2 fields
-                        $Parts = $CurrentToken -split '(?<=h)'
-                        $CurrentToken = $Parts[0]
-                        $AddressTokens.Insert(($i + 1), $Parts[1])
-                    }
-                    $AddressTokens[$i] = $CurrentToken
-                }
-                $Replacement = $this.GetReplacement($CurrentToken)
-                if ($null -ne $Replacement) {
-                    $AddressTokens[$i] = $Replacement
-                }
-            }
-            if (($Index = $this.NumberWords.IndexOf($CurrentToken)) -gt 0) {
-                $AddressTokens[$i] = $Index
-            }
-        }
-        return $AddressTokens
-    }
     [bool] TestIsAddressMatch([string] $ReferenceAddress, [string] $DifferenceAddress) {
         if ($ReferenceAddress -eq $DifferenceAddress) { return $true }
 
-        $ReferenceAddressTokens = $this.GetCleanAddressParts($ReferenceAddress)
+        $ReferenceAddressTokens = $this.Formatter.TokenizeStreetAddress($ReferenceAddress)
         $ReferenceMatched = [bool[]]::new($ReferenceAddressTokens.Count)
 
-        $DifferenceAddressTokens = $this.GetCleanAddressParts($DifferenceAddress)
+        $DifferenceAddressTokens = $this.Formatter.TokenizeStreetAddress($DifferenceAddress)
         $DifferenceMatched = [bool[]]::new($DifferenceAddressTokens.Count)
         # simple match first
         for ($i = 0; $i -lt $ReferenceAddressTokens.Count; $i++) {
@@ -85,6 +37,7 @@ class AddressValidator {
         }
         return $false
     }
+
     [void] ValidateAddress([E911Address] $Address) {
         if ($null -eq $this.MapsKey) {
             $Address.Warning.Add([WarningType]::MapsValidation, 'No Maps API Key Found')
@@ -215,11 +168,8 @@ class AddressValidator {
             return $true
         }
         $Delta = [Math]::Abs($ReferenceNum - $DifferenceNum)
-        $FmtString = [string]::new('0', $this._geocodeDecimalPlaces)
-        $IsFuzzyMatch = [Math]::Round($Delta, $this._geocodeDecimalPlaces) -eq 0
-        if (!$IsFuzzyMatch -and $ReferenceNum -ne 0.0) {
-            Write-Debug (("ReferenceNum: {0:0.$FmtString}`tDifferenceNum: {1:0.$FmtString}`tDiff: {2:0.$FmtString}" -f $ReferenceNum, $DifferenceNum, $Delta))
-        }
+        $FmtString = [string]::new('0', $this._geocodeDecimalPlaces + 1)
+        $IsFuzzyMatch = [Math]::Round($Delta, $this._geocodeDecimalPlaces) -eq 0 -or $ReferenceNum.ToString("0.$FmtString").Substring(0,$this._geocodeDecimalPlaces + 2) -eq $DifferenceNum.ToString("0.$FmtString").Substring(0,$this._geocodeDecimalPlaces + 2)
         return $IsFuzzyMatch
     }
     [string] _getAddressInMapsQueryForm([E911Address] $Address) {
@@ -241,7 +191,7 @@ class AddressValidator {
     hidden [int] $_geocodeDecimalPlaces = 3
     hidden [int] $_mapsQueryCount = 0
     static AddressValidator() {
-        [PSClassProperty]::UpdateType(([AddressValidator]), @(
+        [PSClassProperty]::UpdateType(([AddressValidator]), [PSClassProperty[]]@(
                 @{
                     Name   = 'MapsClient'
                     Getter = {
@@ -270,6 +220,7 @@ class AddressValidator {
                 @{
                     Name   = 'MapsQueryCount'
                     Setter = {
+                        param([int]$value)
                         if (($value - $this._mapsQueryCount) -eq 1) {
                             $this._mapsQueryCount = $value
                         }

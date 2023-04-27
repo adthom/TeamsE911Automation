@@ -1,12 +1,10 @@
-# #Requires -Modules ..\TeamsE911Automation
-using module ..\TeamsE911Automation.psd1
+# using module ..\TeamsE911Automation.psd1
 using namespace System.Collections.Generic
 using namespace System.Collections
 using namespace System.Text
 
 [CmdletBinding(SupportsShouldProcess)]
 param ()
-
 function Get-CleanParamString {
     param (
         [hashtable]
@@ -55,105 +53,126 @@ function Get-CleanParamString {
     }
 }
 
-[Dictionary[string, List[LisLocation]]]$LocationLookup = @{}
-$onlineObjects = [LisObjectHelper]::GetAll($true)
-$Status = @{}
-$Status['Address'] = @{}
-$Status['Location'] = @{}
-Write-Host 'Finding unused addresses...'
-$Status['Address']['InUse'], $Status['Address']['NotInUse'] = $onlineObjects[[LisCivicAddress]].Where({ $_.IsInUse() }, 'Split')
-Write-Host "Found $($Status['Address']['NotInUse'].Count) unused addresses"
+$Module = Get-Module -Name TeamsE911Automation
+if ($null -eq $Module) {
+    $Module = Import-Module ..\TeamsE911Automation.psd1 -PassThru
+}
 
-Write-Host 'Finding unused locations...'
-$Status['Location']['InUse'], $Status['Location']['NotInUse'] = $onlineObjects[[LisLocation]].Where({ $_.IsInUse() }, 'Split')
-Write-Host "Found $($Status['Location']['NotInUse'].Count) unused locations"
+$LisObjectHelperType = & $Module { [LisObjectHelper] }
+$LisCivicAddressType = & $Module { [LisCivicAddress] }
+$LisLocationType = & $Module { [LisLocation] }
+$LisLocationPrioritySetType = & $Module { [LisLocationPrioritySet] }
 
-$lisLocations = [LisLocation]::GetAll()
-$locationSet = [LisLocationPrioritySet]$lisLocations
+
+$onlineObjects = $LisObjectHelperType::GetAll($true)
+
+$lisLocations = $LisLocationType::GetAll()
+$locationSet = $lisLocations -as $LisLocationPrioritySetType
 
 Write-Host 'Finding duplicated locations...'
-foreach ($location in $Status['Location']['InUse'].Where({!$locationSet.Contains($_)})) {
-    if (!$LocationLookup.ContainsKey($location.GetHash())) {
-        $LocationLookup[$location.GetHash()] = @()
+$listType = [Collections.Generic.Dictionary`2]
+$concreteType = $listType.MakeGenericType($lisLocationType, $lisLocationType)
+$cleanup = [System.Activator]::CreateInstance($concreteType) # [Dictionary[LisLocation, LisLocation]]@{}
+foreach ($location in $lisLocations) {
+    if (!$locationSet.Contains($location)) {
+        $cleanup[$location] = $locationSet.GetDuplicateLocation($location)
+        Write-Host "Found duplicate location $($location.LocationId)"
     }
-    $LocationLookup[$location.GetHash()].Add($location)
 }
-$DuplicatedHashes = $LocationLookup.Keys
-$LocationsToRemove = [List[LisLocation]]@($Status['Location']['NotInUse'])
-$AddressesToRemove = [List[LisCivicAddress]]@($Status['Address']['NotInUse'])
-$TotalUneededLocations = $lisLocations.Count - $locationSet.Count
-Write-Host "Found $($DuplicatedHashes.Count) duplicated locations ($TotalUneededLocations locations to remove)"
-foreach ($locationHash in $DuplicatedHashes) {
-    $Locations = $LocationLookup[$locationHash]
-    $TargetLocation = $Locations.Where({$locationSet.Contains($_)})[0]
-    # $TargetLocation = $Locations | Sort-Object { $_.GetAssociatedNetworkObjects().Count } -Descending | Select-Object -First 1
-    $LocationsToMigrate = $Locations | Where-Object { $_.Id -ne $TargetLocation.Id }
-    foreach ($location in $LocationsToMigrate) {
-        Write-Host "Migrating $($location.LocationId) to $($TargetLocation.LocationId)"
-        $networkObjects = $location.GetAssociatedNetworkObjects()
-        foreach ($networkObject in $networkObjects) {
-            $params = @{
-                LocationId = $TargetLocation.LocationId
-            }
-            $idParams = $networkObject.IdentifierParams()
-            foreach ($p in $idParams) {
-                $params[$p] = $idParams[$p]
-            }
-            $CommandName = 'Set-CsOnlineLis{0}' -f $networkObject.Type
-            $Command = Get-Command -Name $CommandName
-            Write-Host "Migrating $($networkObject.Type) $($networkObject.Identifier()) to $($TargetLocation.LocationId)"
-            if ($PSCmdlet.ShouldProcess("$($networkObject.Type) $($networkObject.Identifier()) to $($TargetLocation.LocationId)", $CommandName)) {
-                #{ & $Command @params }.Invoke()
-                Write-Warning "This didnt prompt"
-            }
-            else {
-                $ParamString = Get-CleanParamString -Params $params
-                @($CommandName, $ParamString) -join ' ' | Write-Output   
-            }
+$LocationsToRemove = [HashSet[Guid]]@()
+$AddressesToRemove = [HashSet[Guid]]@()
+if ($cleanup.Count -gt 0) {
+    $TotalUneededLocations = $lisLocations.Count - $locationSet.Count
+    Write-Host "Found duplicated locations! ($TotalUneededLocations locations to remove)"
+}
+$dirty = $false
+foreach ($location in $cleanup.Keys) {
+    $TargetLocation = $cleanup[$location]
+    Write-Host "Migrating $($location.LocationId) to $($TargetLocation.LocationId)"
+    $networkObjects = $location.GetAssociatedNetworkObjects()
+    foreach ($networkObject in $networkObjects) {
+        $params = @{
+            LocationId = $TargetLocation.LocationId
         }
-        $address = $location.GetCivicAddress()
-        if ($address.DefaultLocationId -ne $location.LocationId) {
-            Write-Host "Removing location $($location.LocationId)"
-            if ($PSCmdlet.ShouldProcess($location.LocationId, 'Remove-CsOnlineLisLocation')) {
-                # Remove-CsOnlineLisLocation -LocationId $location.LocationId
-                Write-Warning "This didnt prompt"
-            }
-            else {
-                "Remove-CsOnlineLisLocation -LocationId $($location.LocationId)" | Write-Output
-            }
+        $idParams = $networkObject.IdentifierParams()
+        foreach ($p in $idParams) {
+            $params[$p] = $idParams[$p]
+        }
+        $CommandName = 'Set-CsOnlineLis{0}' -f $networkObject.Type
+        $Command = Get-Command -Name $CommandName
+        Write-Host "Migrating $($networkObject.Type) $($networkObject.Identifier()) to $($TargetLocation.LocationId)"
+        if ($PSCmdlet.ShouldProcess("$($networkObject.Type) $($networkObject.Identifier()) to $($TargetLocation.LocationId)", $CommandName)) {
+            { & $Command @params }.Invoke()
         }
         else {
-            Write-Host "$($location.LocationId) is a default location, will check if it can be removed later"
-            $LocationsToRemove.Add($location)
+            $ParamString = Get-CleanParamString -Params $params
+            @($CommandName, $ParamString) -join ' ' | Write-Output   
         }
+        $dirty = $true
     }
-}
-foreach ($location in $LocationsToRemove) {
     $address = $location.GetCivicAddress()
     if ($address.DefaultLocationId -ne $location.LocationId) {
         Write-Host "Removing location $($location.LocationId)"
         if ($PSCmdlet.ShouldProcess($location.LocationId, 'Remove-CsOnlineLisLocation')) {
-            # Remove-CsOnlineLisLocation -LocationId $location.LocationId
-            Write-Warning "This didnt prompt"
+            Remove-CsOnlineLisLocation -LocationId $location.LocationId
         }
         else {
             "Remove-CsOnlineLisLocation -LocationId $($location.LocationId)" | Write-Output
         }
-    }
-    elseif (!$address.IsInUse($false) -or !$address.IsInUse($true)) {
-        $AddressesToRemove.Add($address)
+        $dirty = $true
     }
     else {
-        Write-Host "Location $($location.LocationId) is the default location for address $($address.CivicAddressId) and cannot be removed because the address is in use."
+        Write-Host "$($location.LocationId) is a default location, will check if it can be removed later"
+        $null = $LocationsToRemove.Add($location.LocationId)
+    }
+}
+
+if ($dirty) { Write-Host 'Refreshing caches after migrations...' }
+$onlineObjects = $LisObjectHelperType::GetAll($dirty)
+$Status = @{
+    Address  = $null
+    Location = $null
+}
+Write-Host 'Finding unused addresses...'
+$Status['Address'] = $onlineObjects[$LisCivicAddressType].Where({ !$_.IsInUse() }).CivicAddressId
+Write-Host "Found $($Status['Address'].Count) unused addresses"
+foreach ($g in $Status['Address']) {
+    $null = $AddressesToRemove.Add($g)
+}
+
+Write-Host 'Finding unused locations...'
+$Status['Location'] = $onlineObjects[$LisLocationType].Where({ !$_.IsInUse() }).LocationId
+Write-Host "Found $($Status['Location'].Count) unused locations"
+foreach ($g in $Status['Location']) {
+    $null = $LocationsToRemove.Add($g)
+}
+
+foreach ($location in $LocationsToRemove) {
+    $testLocation = $LisLocationType::GetById($location)
+    $address = $testLocation.GetCivicAddress()
+    if ($address.DefaultLocationId -ne $testLocation.LocationId) {
+        Write-Host "Removing location $($testLocation.LocationId)"
+        if ($PSCmdlet.ShouldProcess($testLocation.LocationId, 'Remove-CsOnlineLisLocation')) {
+            Remove-CsOnlineLisLocation -LocationId $testLocation.LocationId
+        }
+        else {
+            "Remove-CsOnlineLisLocation -LocationId $($testLocation.LocationId)" | Write-Output
+        }
+    }
+    elseif (!$address.IsInUse()) {
+        $null = $AddressesToRemove.Add($address.CivicAddressId)
+    }
+    else {
+        Write-Host "Location $($testLocation.LocationId) is the default location for address $($address.CivicAddressId) and cannot be removed because the address is in use."
     }
 }
 foreach ($address in $AddressesToRemove) {
-    Write-Host "Removing address $($address.CivicAddressId)"
-    if ($PSCmdlet.ShouldProcess($address.CivicAddressId, 'Remove-CsOnlineLisCivicAddress')) {
-        # Remove-CsOnlineLisCivicAddress -CivicAddressId $address.CivicAddressId
-        Write-Warning "This didnt prompt"
+    $testAddress = $LisCivicAddressType::GetById($address)
+    Write-Host "Removing address $($testAddress.CivicAddressId)"
+    if ($PSCmdlet.ShouldProcess($testAddress.CivicAddressId, 'Remove-CsOnlineLisCivicAddress')) {
+        Remove-CsOnlineLisCivicAddress -CivicAddressId $testAddress.CivicAddressId
     }
     else {
-        "Remove-CsOnlineLisCivicAddress -CivicAddressId $($address.CivicAddressId)" | Write-Output
+        "Remove-CsOnlineLisCivicAddress -CivicAddressId $($testAddress.CivicAddressId)" | Write-Output
     }
 }

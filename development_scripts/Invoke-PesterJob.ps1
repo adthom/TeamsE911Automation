@@ -99,6 +99,6 @@ function Invoke-PesterJob {
         ${Show}
     )
     $params = $PSBoundParameters
-    Start-Job -ScriptBlock { Set-Location $using:pwd; Invoke-Pester @using:params } | Receive-Job -Wait -AutoRemoveJob
+    Start-Job -ScriptBlock { Set-Location $using:pwd; Invoke-Pester @using:params } | Receive-Job -Wait -AutoRemoveJob -InformationAction SilentlyContinue
 }
 Set-Alias ipj Invoke-PesterJob

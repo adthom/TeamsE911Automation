@@ -1,4 +1,5 @@
 using module '..\..\modules\PSClassExtensions\bin\release\PSClassExtensions\PSClassExtensions.psd1'
+using namespace System.Collections.Generic
 
 function Get-CsE911OnlineConfiguration {
     [CmdletBinding()]
@@ -6,19 +7,13 @@ function Get-CsE911OnlineConfiguration {
         [switch]
         $IncludeOrphanedConfiguration
     )
-
-    begin {
-        $commandHelper = [PSFunctionHost]::StartNew($PSCmdlet, 'Getting Existing Configuration', [E911ModuleState]::Interval)
-        Assert-TeamsIsConnected
-        # initialize caches
-        # [E911ModuleState]::ShouldClear = $true
-        [E911ModuleState]::InitializeCaches($commandHelper)
-
-        $FoundLocationHashes = [Collections.Generic.HashSet[string]]@()
-        $FoundAddressHashes = [Collections.Generic.HashSet[string]]@()
-    }
     end {
+        Assert-TeamsIsConnected
+        $commandHelper = [PSFunctionHost]::StartNew($PSCmdlet, 'Getting Existing Configuration', [E911ModuleState]::Interval)
         try {
+            [E911ModuleState]::InitializeCaches($commandHelper)
+            $FoundLocationHashes = [HashSet[string]]@()
+            $FoundAddressHashes = [HashSet[string]]@()
             $generatorHelper = [PSFunctionHost]::StartNew($commandHelper, 'Generating Configuration')
             $generatorHelper.Total = [E911ModuleState]::OnlineNetworkObjects.Count
             foreach ($nObj in [E911ModuleState]::OnlineNetworkObjects.Values) {
@@ -31,7 +26,6 @@ function Get-CsE911OnlineConfiguration {
                 }
                 $generatorHelper.WriteVerbose(('Processing {0}:{1}' -f $nObj.Type, $nObj.Identifier))
                 if ($null -eq $nObj._location -or $null -eq $nObj._location._address -or ($nObj._isOnline -and !($nObj._location._isOnline -and $nObj._location._address._isOnline))) {
-                    # $generatorHelper.WriteWarning(('{0}:{1} is orphaned!' -f $nObj.Type, $nObj.Identifier))
                     if (!$IncludeOrphanedConfiguration) {
                         continue
                     }
@@ -51,7 +45,6 @@ function Get-CsE911OnlineConfiguration {
                 }
                 [void]$FoundLocationHashes.Add($location.GetHash())
                 if ($null -eq $location._address -or ($location._isOnline -and !$location._address._isOnline) -and !$IncludeOrphanedConfiguration) {
-                    # $generatorHelper.WriteWarning(('{0} is orphaned!' -f $location.Location))
                     continue
                 }
                 if (!$FoundAddressHashes.Contains($location._address.GetHash())) {
@@ -77,7 +70,6 @@ function Get-CsE911OnlineConfiguration {
                 $Row = [E911DataRow]::new($address)
                 $Row.ToString() | ConvertFrom-Json | Write-Output
             }
-            # $generatorHelper.Complete()
             $generatorHelper.WriteVerbose('Finished')
         }
         finally {

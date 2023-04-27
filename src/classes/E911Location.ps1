@@ -53,17 +53,6 @@ class E911Location {
             $this._address._hasChanged = $true
             $this._address.Elin = $this.Elin
         }
-
-        $this._AddCompanyName()
-        $this._AddCompanyTaxId()
-        $this._AddDescription()
-        $this._AddAddress()
-        $this._AddCity()
-        $this._AddStateOrProvince()
-        $this._AddPostalCode()
-        $this._AddCountryOrRegion()
-        $this._AddLatitude()
-        $this._AddLongitude()
     }
 
     hidden E911Location() {}
@@ -73,16 +62,6 @@ class E911Location {
         $this._hasChanged = $false
         $this._commandGenerated = $false
         $this.Warning = [WarningList]::new()
-        $this._AddCompanyName()
-        $this._AddCompanyTaxId()
-        $this._AddDescription()
-        $this._AddAddress()
-        $this._AddCity()
-        $this._AddStateOrProvince()
-        $this._AddPostalCode()
-        $this._AddCountryOrRegion()
-        $this._AddLatitude()
-        $this._AddLongitude()
     }
 
     [string] $Location
@@ -125,34 +104,31 @@ class E911Location {
         if ($this._commandGenerated -or ($this._isOnline -and !$this._hasChanged) -or $this._isDefault) {
             return ''
         }
-        if ([string]::IsNullOrEmpty($this._command)) {
-            $sb = [Text.StringBuilder]::new()
-            if ($this._address._isOnline -and !$this._address._hasChanged) {
-                $CivicAddressId = '{0}' -f $this._address.Id.ToString()
+        $sb = [Text.StringBuilder]::new()
+        if ($this._address._isOnline -and !$this._address._hasChanged) {
+            $CivicAddressId = '{0}' -f $this._address.Id.ToString()
+        }
+        else {
+            $CivicAddressId = '$Addresses[''{0}''].CivicAddressId' -f $this._address.Id.VariableName()
+        }
+        $LocationParams = @{
+            CivicAddressId = $CivicAddressId
+            Location       = '{0}' -f $this.Location
+        }
+        if (![string]::IsNullOrEmpty($this.Elin)) {
+            $LocationParams['Elin'] = '{0}' -f $this.Elin
+        }
+        [void]$sb.AppendFormat('$Locations[''{0}''] = New-CsOnlineLisLocation', $this.Id.VariableName())
+        foreach ($Parameter in $LocationParams.Keys) {
+            if ($LocationParams[$Parameter].ToString() -match '[''"\s|&<>@#\(\)\$;,`]' -and $Parameter -ne 'CivicAddressId') {
+                [void]$sb.AppendFormat(' -{0} ''{1}''', $Parameter, $LocationParams[$Parameter].ToString().Replace('''', ''''''))
             }
             else {
-                $CivicAddressId = '$Addresses[''{0}''].CivicAddressId' -f $this._address.Id.VariableName()
+                [void]$sb.AppendFormat(' -{0} {1}', $Parameter, $LocationParams[$Parameter])
             }
-            $LocationParams = @{
-                CivicAddressId = $CivicAddressId
-                Location       = '{0}' -f $this.Location
-            }
-            if (![string]::IsNullOrEmpty($this.Elin)) {
-                $LocationParams['Elin'] = '{0}' -f $this.Elin
-            }
-            [void]$sb.AppendFormat('$Locations[''{0}''] = New-CsOnlineLisLocation', $this.Id.VariableName())
-            foreach ($Parameter in $LocationParams.Keys) {
-                if ($LocationParams[$Parameter].ToString() -match '[''"\s|&<>@#\(\)\$;,`]' -and $Parameter -ne 'CivicAddressId') {
-                    [void]$sb.AppendFormat(' -{0} ''{1}''', $Parameter, $LocationParams[$Parameter].ToString().Replace('''', ''''''))
-                }
-                else {
-                    [void]$sb.AppendFormat(' -{0} {1}', $Parameter, $LocationParams[$Parameter])
-                }
-            }
-            $sb.Append(' -ErrorAction Stop | Select-Object -Property LocationId')
-            $this._command = $sb.ToString()
         }
-        return $this._command
+        $sb.Append(' -ErrorAction Stop | Select-Object -Property LocationId')
+        return $sb.ToString()
     }
 
     static [string] GetHash([PSCustomObject] $obj) {
@@ -163,7 +139,6 @@ class E911Location {
 
     [string] GetHash() {
         if ([string]::IsNullOrEmpty($this._hash)) {
-            # $this._hash = [Hasher]::GetHash("$($this._address.GetHash())$($this.Location.ToLower())$($this.Elin.ToLower())")
             $this._hash = [E911Location]::GetHash($this)
         }
         return $this._hash
@@ -186,54 +161,59 @@ class E911Location {
         return $this.GetHash() -eq $Value.GetHash()
     }
 
-    hidden [void] _AddCompanyName() {
-        $this | Add-Member -Name CompanyName -MemberType ScriptProperty -Value {
-            return $this._address.CompanyName
-        }
-    }
-    hidden [void] _AddCompanyTaxId() {
-        $this | Add-Member -Name CompanyTaxId -MemberType ScriptProperty -Value {
-            return $this._address.CompanyTaxId
-        }
-    }
-    hidden [void] _AddDescription() {
-        $this | Add-Member -Name Description -MemberType ScriptProperty -Value {
-            return $this._address.Description
-        }
-    }
-    hidden [void] _AddAddress() {
-        $this | Add-Member -Name Address -MemberType ScriptProperty -Value {
-            return $this._address.Address
-        }
-    }
-    hidden [void] _AddCity() {
-        $this | Add-Member -Name City -MemberType ScriptProperty -Value {
-            return $this._address.City
-        }
-    }
-    hidden [void] _AddStateOrProvince() {
-        $this | Add-Member -Name StateOrProvince -MemberType ScriptProperty -Value {
-            return $this._address.StateOrProvince
-        }
-    }
-    hidden [void] _AddPostalCode() {
-        $this | Add-Member -Name PostalCode -MemberType ScriptProperty -Value {
-            return $this._address.PostalCode
-        }
-    }
-    hidden [void] _AddCountryOrRegion() {
-        $this | Add-Member -Name CountryOrRegion -MemberType ScriptProperty -Value {
-            return $this._address.CountryOrRegion
-        }
-    }
-    hidden [void] _AddLatitude() {
-        $this | Add-Member -Name Latitude -MemberType ScriptProperty -Value {
-            return $this._address.Latitude
-        }
-    }
-    hidden [void] _AddLongitude() {
-        $this | Add-Member -Name Longitude -MemberType ScriptProperty -Value {
-            return $this._address.Longitude
+    static E911Location() {
+        $CustomProperties = @(
+            @{
+                Name  = 'CompanyName'
+                Value = { return $this._address.CompanyName }
+            }
+            @{
+                Name  = 'CompanyTaxId'
+                Value = { return $this._address.CompanyTaxId }
+            }
+            @{
+                Name  = 'Description'
+                Value = { return $this._address.Description }
+            }
+            @{
+                Name  = 'Address'
+                Value = { return $this._address.Address }
+            }
+            @{
+                Name  = 'City'
+                Value = { return $this._address.City }
+            }
+            @{
+                Name  = 'StateOrProvince'
+                Value = { return $this._address.StateOrProvince }
+            }
+            @{
+                Name  = 'PostalCode'
+                Value = { return $this._address.PostalCode }
+            }
+            @{
+                Name  = 'CountryOrRegion'
+                Value = { return $this._address.CountryOrRegion }
+            }
+            @{
+                Name  = 'Latitude'
+                Value = { return $this._address.Latitude }
+            }
+            @{
+                Name  = 'Longitude'
+                Value = { return $this._address.Longitude }
+            }
+        )
+
+        $Type = [E911Location]
+        foreach ($CustomProperty in $CustomProperties) {
+            $TypeDataParams = @{
+                MemberName = $CustomProperty['Name']
+                MemberType = 'ScriptProperty' 
+                Value      = $CustomProperty['Value']
+                Force      = $true
+            }
+            $Type | Update-TypeData @TypeDataParams
         }
     }
 }

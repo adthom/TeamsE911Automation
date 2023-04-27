@@ -33,7 +33,6 @@ class E911NetworkObject {
             $this.Warning.AddRange($this._location.Warning)
         }
         $this.Id = [ItemId]::new()
-        # Write-Host "NetworkObject $($this.Id) Found Location $($this._location.Id) with hash $($this._location.GetHash())"
         $this._isDuplicate = $false
         $this._hasChanged = $this._hasChanged -or $false
         $this._commandGenerated = $false
@@ -99,7 +98,6 @@ class E911NetworkObject {
             return
         }
         $this._location = [E911ModuleState]::GetOrCreateLocation($obj, $false)
-        # Write-Host "NetworkObject $($this.Id) Found Location $($this._location.Id) with hash $($this._location.GetHash())"
         if ([string]::IsNullOrEmpty($this._location.CountryOrRegion)) {
             $this._isOnline = $false
         }
@@ -144,42 +142,39 @@ class E911NetworkObject {
         if ($this._commandGenerated -or ($this._isOnline -and !$this._hasChanged) -or $this.Type -eq [NetworkObjectType]::Unknown -or $null -eq $this._location) {
             return ''
         }
-        if ([string]::IsNullOrEmpty($this._command)) {
-            $sb = [Text.StringBuilder]::new()
-            if ($this._location._isDefault -and $this._location._address._hasChanged) {
-                $LocationId = '$Addresses[''{0}''].DefaultLocationId' -f $this._location._address.Id.VariableName()
-            }
-            elseif ($this._location._hasChanged) {
-                $LocationId = '$Locations[''{0}''].LocationId' -f $this._location.Id.VariableName()
+        $sb = [Text.StringBuilder]::new()
+        if ($this._location._isDefault -and $this._location._address._hasChanged) {
+            $LocationId = '$Addresses[''{0}''].DefaultLocationId' -f $this._location._address.Id.VariableName()
+        }
+        elseif ($this._location._hasChanged) {
+            $LocationId = '$Locations[''{0}''].LocationId' -f $this._location.Id.VariableName()
+        }
+        else {
+            $LocationId = '{0}' -f $this._location.Id.ToString()
+        }
+        [void]$sb.AppendFormat('$null = Set-CsOnlineLis{0} -LocationId {1}', $this.Type, $LocationId)
+        if (![string]::IsNullOrEmpty($this.Description)) {
+            if ($this.Description -match '[''"\s|&<>@#\(\);,`]') {
+                [void]$sb.AppendFormat(' -Description ''{0}''', $this.Description.Replace('''', ''''''))
             }
             else {
-                $LocationId = '{0}' -f $this._location.Id.ToString()
+                [void]$sb.AppendFormat(' -Description {0}', $this.Description)
             }
-            [void]$sb.AppendFormat('$null = Set-CsOnlineLis{0} -LocationId {1}', $this.Type, $LocationId)
-            if (![string]::IsNullOrEmpty($this.Description)) {
-                if ($this.Description -match '[''"\s|&<>@#\(\);,`]') {
-                    [void]$sb.AppendFormat(' -Description ''{0}''', $this.Description.Replace('''', ''''''))
-                }
-                else {
-                    [void]$sb.AppendFormat(' -Description {0}', $this.Description)
-                }
-            }
-            if ($this.Type -eq [NetworkObjectType]::Switch -or $this.Type -eq [NetworkObjectType]::Port) {
-                [void]$sb.AppendFormat(' -ChassisId {0}', $this.Identifier.PhysicalAddress)
-            }
-            if ($this.Type -eq [NetworkObjectType]::Port) {
-                [void]$sb.AppendFormat(' -PortId {0}', $this.Identifier.PortId)
-            }
-            if ($this.Type -eq [NetworkObjectType]::Subnet) {
-                [void]$sb.AppendFormat(' -Subnet {0}', $this.Identifier.SubnetId.ToString())
-            }
-            if ($this.Type -eq [NetworkObjectType]::WirelessAccessPoint) {
-                [void]$sb.AppendFormat(' -Bssid {0}', $this.Identifier.PhysicalAddress)
-            }
-            [void]$sb.Append(' -ErrorAction Stop')
-            $this._command = $sb.ToString()
         }
-        return $this._command
+        if ($this.Type -eq [NetworkObjectType]::Switch -or $this.Type -eq [NetworkObjectType]::Port) {
+            [void]$sb.AppendFormat(' -ChassisId {0}', $this.Identifier.PhysicalAddress)
+        }
+        if ($this.Type -eq [NetworkObjectType]::Port) {
+            [void]$sb.AppendFormat(' -PortId {0}', $this.Identifier.PortId)
+        }
+        if ($this.Type -eq [NetworkObjectType]::Subnet) {
+            [void]$sb.AppendFormat(' -Subnet {0}', $this.Identifier.SubnetId.ToString())
+        }
+        if ($this.Type -eq [NetworkObjectType]::WirelessAccessPoint) {
+            [void]$sb.AppendFormat(' -Bssid {0}', $this.Identifier.PhysicalAddress)
+        }
+        [void]$sb.Append(' -ErrorAction Stop')
+        return $sb.ToString()
     }
 
     [bool] HasWarnings() {

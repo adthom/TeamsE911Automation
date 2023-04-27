@@ -5,12 +5,16 @@ Describe 'Get-CsE911NeededChange' {
         $ModuleRoot = Split-Path -Path (Split-Path -Path $PSCommandPath -Parent) -Parent
         $ModuleName = 'TeamsE911Automation'
 
-        Get-Module MicrosoftTeams | Remove-Module
+        $WVerboseFunc = [Func[bool]] { $______pester_invoke_block_parameters.Block.ShouldRun -and !$______pester_invoke_block_parameters.Block.Skip -and $____Pester.Configuration.Output.Verbosity.Value -in @('Diagnostic') }
+        $WVParam = @{
+            Verbose = $WVerboseFunc.Invoke()
+        }
 
         # import secrets and connect
         . "${ModuleRoot}\tests\secrets.ps1"
 
         Get-Module $ModuleName | Remove-Module
+        Get-Module MicrosoftTeams | Remove-Module
         Import-Module "${ModuleRoot}\bin\debug\${ModuleName}" -Force
 
         $KnownGoodRow = @{ CompanyName = 'TestCompany'; CompanyTaxId = ''; Description = ''; Address = '1 Microsoft Way'; Location = ''; City = 'Redmond'; StateOrProvince = 'WA'; PostalCode = '98052'; CountryOrRegion = 'US'; Latitude = '47.63963'; Longitude = '-122.12852'; ELIN = ''; NetworkDescription = ''; NetworkObjectType = 'Subnet'; NetworkObjectIdentifier = '10.0.0.0'; SkipMapsLookup = 'false'; EntryHash = ''; Warning = '' }
@@ -64,10 +68,12 @@ Describe 'Get-CsE911NeededChange' {
         }
 
         Mock -ModuleName $ModuleName -CommandName Assert-TeamsIsConnected -MockWith {
-            return $true
+            return
         }
         Mock -ModuleName $ModuleName -CommandName Get-CsOnlineLisCivicAddress -MockWith {
             param (
+                [string]
+                $CivicAddressId,
                 [switch]
                 $PopulateNumberOfTelephoneNumbers,
                 [switch]
@@ -85,10 +91,17 @@ Describe 'Get-CsE911NeededChange' {
                     $a.NumberOfVoiceUsers = -1
                 }
             }
+            if ($CivicAddressId) {
+                $Addresses = $Addresses.Where({ $_.CivicAddressId -eq $CivicAddressId })
+            }
             return $Addresses
         }
         Mock -ModuleName $ModuleName -CommandName Get-CsOnlineLisLocation -MockWith {
             param (
+                [string]
+                $LocationId,
+                [string]
+                $CivicAddressId,
                 [switch]
                 $PopulateNumberOfTelephoneNumbers,
                 [switch]
@@ -105,6 +118,12 @@ Describe 'Get-CsE911NeededChange' {
                 foreach ($l in $Locations) {
                     $l.NumberOfVoiceUsers = -1
                 }
+            }
+            if ($LocationId) {
+                $Locations = $Locations.Where({ $_.LocationId -eq $LocationId })
+            }
+            if ($CivicAddressId) {
+                $Locations = $Locations.Where({ $_.CivicAddressId -eq $CivicAddressId })
             }
             return $Locations
         }
@@ -457,237 +476,372 @@ Describe 'Get-CsE911NeededChange' {
         $OnlineNetworkObjects += @(InModuleScope -ModuleName $ModuleName { Get-CsOnlineLisSubnet }).Where({ $null -ne $_ }).Count
         $OnlineNetworkObjects += @(InModuleScope -ModuleName $ModuleName { Get-CsOnlineLisWirelessAccessPoint }).Where({ $null -ne $_ }).Count
     }
+    Describe 'Online Configuration Is Generated' {
+        BeforeAll {
+            $WVParam = @{ Verbose = $WVerboseFunc.Invoke() }
+            InModuleScope -ModuleName $ModuleName { Reset-CsE911Cache -Verbose:$Verbose } -Parameters $WVParam
+            $null = Get-TestRow | Get-CsE911NeededChange @WVParam
+        }
+        BeforeEach {
+            $WVParam = @{ Verbose = $WVerboseFunc.Invoke() }
+        }
+        It 'Generates exactly <OnlineAddresses> online addresses' {
+            $d = InModuleScope -ModuleName $ModuleName { [E911ModuleState]::OnlineAddresses }
+            Write-Verbose "OnlineAddresses: $($d.Count)" @WVParam
+            foreach ($k in $d.Keys) { Write-Verbose "  OnlineAddress: ${k}: $($d[$k] | Select-Object * | ConvertTo-Json -Compress -Depth 1 -WarningAction SilentlyContinue)" @WVParam }
+            $d.Count | Should -Be $OnlineAddresses
+        }
+        It 'Generates exactly <OnlineLocations> online locations' {
+            $d = InModuleScope -ModuleName $ModuleName { [E911ModuleState]::OnlineLocations }
+            Write-Verbose "OnlineLocations: $($d.Count)" @WVParam
+            foreach ($k in $d.Keys) { Write-Verbose "  OnlineLocation: ${k}: $($d[$k] | Select-Object * | ConvertTo-Json -Compress -Depth 1 -WarningAction SilentlyContinue)" @WVParam }
+            $d.Count | Should -Be $OnlineLocations
+        }
+        It 'Generates exactly <OnlineNetworkObjects> online network objects' {
+            $d = InModuleScope -ModuleName $ModuleName { [E911ModuleState]::OnlineNetworkObjects }
+            Write-Verbose "OnlineNetworkObjects: $($d.Count)" @WVParam
+            foreach ($k in $d.Keys) { Write-Verbose "  OnlineNetworkObject: ${k}: $($d[$k] | Select-Object * | ConvertTo-Json -Compress -Depth 1 -WarningAction SilentlyContinue)" @WVParam }
+            $d.Count | Should -Be $OnlineNetworkObjects
+        }
+    }
+
     Describe 'Input with <Name>' -ForEach @(
         @{
-            Name         = 'Subnet'
-            Exclude      = @()
-            Override     = @{}
-            Warnings     = @()
-            WarningTypes = @()
-            WarningCount = 0
+            Name              = 'Subnet'
+            Exclude           = @()
+            Override          = @{}
+            Warnings          = @()
+            WarningTypes      = @()
+            WarningCount      = 0
+            CommandCount      = 1
+            ExpectedLocations = 1
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Subnet in TestLocation'
-            Exclude      = @()
-            Override     = @{ Location = 'TestLocation' }
-            Warnings     = @()
-            WarningTypes = @()
-            WarningCount = 0
+            Name              = 'Subnet in TestLocation'
+            Exclude           = @()
+            Override          = @{ Location = 'TestLocation' }
+            Warnings          = @()
+            WarningTypes      = @()
+            WarningCount      = 0
+            CommandCount      = 2
+            ExpectedLocations = 1
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Subnet with mask'
-            Exclude      = @()
-            Override     = @{ NetworkObjectIdentifier = '10.10.10.10/24' }
-            Warnings     = @()
-            WarningTypes = @()
-            WarningCount = 0
+            Name              = 'Subnet with mask'
+            Exclude           = @()
+            Override          = @{ NetworkObjectIdentifier = '10.10.10.10/24' }
+            Warnings          = @()
+            WarningTypes      = @()
+            WarningCount      = 0
+            CommandCount      = 1
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Switch'
-            Exclude      = @()
-            Override     = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'DE-AD-BE-EF-00-01' }
-            Warnings     = @()
-            WarningTypes = @()
-            WarningCount = 0
+            Name              = 'Switch'
+            Exclude           = @()
+            Override          = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'DE-AD-BE-EF-00-01' }
+            Warnings          = @()
+            WarningTypes      = @()
+            WarningCount      = 0
+            CommandCount      = 1
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Switch with lower case address'
-            Exclude      = @()
-            Override     = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'de-ad-be-ef-00-01' }
-            Warnings     = @()
-            WarningTypes = @()
-            WarningCount = 0
+            Name              = 'Switch with lower case address'
+            Exclude           = @()
+            Override          = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'de-ad-be-ef-00-01' }
+            Warnings          = @()
+            WarningTypes      = @()
+            WarningCount      = 0
+            CommandCount      = 1
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Switch with mixed case address'
-            Exclude      = @()
-            Override     = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'De-aD-Be-ef-00-01' }
-            Warnings     = @()
-            WarningTypes = @()
-            WarningCount = 0
+            Name              = 'Switch with mixed case address'
+            Exclude           = @()
+            Override          = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'De-aD-Be-ef-00-01' }
+            Warnings          = @()
+            WarningTypes      = @()
+            WarningCount      = 0
+            CommandCount      = 1
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Switch with mixed case and : in the address'
-            Exclude      = @()
-            Override     = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'De:aD:Be:ef:00:01' }
-            Warnings     = @()
-            WarningTypes = @()
-            WarningCount = 0
+            Name              = 'Switch with mixed case and : in the address'
+            Exclude           = @()
+            Override          = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'De:aD:Be:ef:00:01' }
+            Warnings          = @()
+            WarningTypes      = @()
+            WarningCount      = 0
+            CommandCount      = 1
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Switch with mixed case and mixed/no/misplaced separators in the address'
-            Exclude      = @()
-            Override     = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'De-a::DB-eef00-01' }
-            Warnings     = @()
-            WarningTypes = @()
-            WarningCount = 0
+            Name              = 'Switch with mixed case and mixed/no/misplaced separators in the address'
+            Exclude           = @()
+            Override          = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'De-a::DB-eef00-01' }
+            Warnings          = @()
+            WarningTypes      = @()
+            WarningCount      = 0
+            CommandCount      = 1
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Port'
-            Exclude      = @()
-            Override     = @{ NetworkObjectType = 'Port'; NetworkObjectIdentifier = 'DE-AD-BE-EF-00-01;g0/1' }
-            Warnings     = @()
-            WarningTypes = @()
-            WarningCount = 0
+            Name              = 'Port'
+            Exclude           = @()
+            Override          = @{ NetworkObjectType = 'Port'; NetworkObjectIdentifier = 'DE-AD-BE-EF-00-01;g0/1' }
+            Warnings          = @()
+            WarningTypes      = @()
+            WarningCount      = 0
+            CommandCount      = 1
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Wireless Access Point'
-            Exclude      = @()
-            Override     = @{ NetworkObjectType = 'WirelessAccessPoint'; NetworkObjectIdentifier = 'DE-AD-BE-EF-00-01' }
-            Warnings     = @()
-            WarningTypes = @()
-            WarningCount = 0
+            Name              = 'Wireless Access Point'
+            Exclude           = @()
+            Override          = @{ NetworkObjectType = 'WirelessAccessPoint'; NetworkObjectIdentifier = 'DE-AD-BE-EF-00-01' }
+            Warnings          = @()
+            WarningTypes      = @()
+            WarningCount      = 0
+            CommandCount      = 1
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Wireless Access Point with Wildcard'
-            Exclude      = @()
-            Override     = @{ NetworkObjectType = 'WirelessAccessPoint'; NetworkObjectIdentifier = 'DE-AD-BE-EF-00-0*' }
-            Warnings     = @()
-            WarningTypes = @()
-            WarningCount = 0
+            Name              = 'Wireless Access Point with Wildcard'
+            Exclude           = @()
+            Override          = @{ NetworkObjectType = 'WirelessAccessPoint'; NetworkObjectIdentifier = 'DE-AD-BE-EF-00-0*' }
+            Warnings          = @()
+            WarningTypes      = @()
+            WarningCount      = 0
+            CommandCount      = 1
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Subnet with an address that is too long'
-            Exclude      = @()
-            Override     = @{ NetworkObjectIdentifier = '10.10.10.10.10' }
-            Warnings     = @()
-            WarningTypes = @( 'InvalidInput' )
-            WarningCount = 1
+            Name              = 'Subnet with an address that is too long'
+            Exclude           = @()
+            Override          = @{ NetworkObjectIdentifier = '10.10.10.10.10' }
+            Warnings          = @()
+            WarningTypes      = @( 'InvalidInput' )
+            WarningCount      = 1
+            CommandCount      = 0
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Switch with an address that is too long'
-            Exclude      = @()
-            Override     = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'DE-AD-BE-EF-00-01-1' }
-            Warnings     = @()
-            WarningTypes = @( 'InvalidInput' )
-            WarningCount = 1
+            Name              = 'Switch with an address that is too long'
+            Exclude           = @()
+            Override          = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'DE-AD-BE-EF-00-01-1' }
+            Warnings          = @()
+            WarningTypes      = @( 'InvalidInput' )
+            WarningCount      = 1
+            CommandCount      = 0
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Switch with an address containing invalid characters'
-            Exclude      = @()
-            Override     = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'DE-AD-BE-EF-00-ZZ' }
-            Warnings     = @()
-            WarningTypes = @( 'InvalidInput' )
-            WarningCount = 1
+            Name              = 'Switch with an address containing invalid characters'
+            Exclude           = @()
+            Override          = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'DE-AD-BE-EF-00-ZZ' }
+            Warnings          = @()
+            WarningTypes      = @( 'InvalidInput' )
+            WarningCount      = 1
+            CommandCount      = 0
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'All Empty'
-            Exclude      = @('CompanyName', 'CompanyTaxId', 'Description', 'Address', 'Location', 'City', 'StateOrProvince', 'PostalCode', 'CountryOrRegion', 'Latitude', 'Longitude', 'ELIN', 'NetworkDescription', 'NetworkObjectType', 'NetworkObjectIdentifier', 'SkipMapsLookup', 'EntryHash', 'Warning')
-            Override     = @{}
-            Warnings     = @( "InvalidInput:NetworkObjectType 'Unknown'", 'InvalidInput:CompanyName missing', 'InvalidInput:Address missing', 'InvalidInput:City missing', 'InvalidInput:StateOrProvince missing', 'InvalidInput:CountryOrRegion missing', 'InvalidInput:CountryOrRegion not ISO 3166-1 alpha-2 code', 'MapsValidation:Maps API failure: https://atlas.microsoft.com/search/address/json?subscription-key=<APIKEY REDACTED>&api-version=1.0&query=++&limit=10&countrySet= Produced no results!' )
-            WarningTypes = @( 'InvalidInput', 'MapsValidation' )
-            WarningCount = 8
+            Name              = 'All Empty'
+            Exclude           = @('CompanyName', 'CompanyTaxId', 'Description', 'Address', 'Location', 'City', 'StateOrProvince', 'PostalCode', 'CountryOrRegion', 'Latitude', 'Longitude', 'ELIN', 'NetworkDescription', 'NetworkObjectType', 'NetworkObjectIdentifier', 'SkipMapsLookup', 'EntryHash', 'Warning')
+            Override          = @{}
+            Warnings          = @( "InvalidInput:NetworkObjectType 'Unknown'", 'InvalidInput:CompanyName missing', 'InvalidInput:Address missing', 'InvalidInput:City missing', 'InvalidInput:StateOrProvince missing', 'InvalidInput:CountryOrRegion missing', 'InvalidInput:CountryOrRegion not ISO 3166-1 alpha-2 code', 'MapsValidation:Maps API failure: https://atlas.microsoft.com/search/address/json?subscription-key=<APIKEY REDACTED>&api-version=1.0&query=&limit=10&countrySet= Produced no results!' )
+            WarningTypes      = @( 'InvalidInput', 'MapsValidation' )
+            WarningCount      = 8
+            CommandCount      = 0
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 1
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Missing NetworkObjectIdentifier'
-            Exclude      = @('NetworkObjectIdentifier')
-            Override     = @{}
-            Warnings     = @( 'InvalidInput:NetworkObjectIdentifier missing' )
-            WarningTypes = @( 'InvalidInput' )
-            WarningCount = 1
+            Name              = 'Missing NetworkObjectIdentifier'
+            Exclude           = @('NetworkObjectIdentifier')
+            Override          = @{}
+            Warnings          = @( 'InvalidInput:NetworkObjectIdentifier missing' )
+            WarningTypes      = @( 'InvalidInput' )
+            WarningCount      = 1
+            CommandCount      = 0
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Missing NetworkObjectType'
-            Exclude      = @('NetworkObjectType')
-            Override     = @{}
-            Warnings     = @( "InvalidInput:NetworkObjectType 'Unknown'" )
-            WarningTypes = @( 'InvalidInput' )
-            WarningCount = 1
+            Name              = 'Missing NetworkObjectType'
+            Exclude           = @('NetworkObjectType')
+            Override          = @{}
+            Warnings          = @( "InvalidInput:NetworkObjectType 'Unknown'" )
+            WarningTypes      = @( 'InvalidInput' )
+            WarningCount      = 1
+            CommandCount      = 0
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Missing Only Longitude'
-            Exclude      = @('Longitude')
-            Override     = @{}
-            Warnings     = @( 'InvalidInput:Longitude missing' )
-            WarningTypes = @( 'InvalidInput' )
-            WarningCount = 1
+            Name              = 'Missing Only Longitude'
+            Exclude           = @('Longitude')
+            Override          = @{}
+            Warnings          = @( 'InvalidInput:Longitude missing' )
+            WarningTypes      = @( 'InvalidInput' )
+            WarningCount      = 1
+            CommandCount      = 0
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Missing Only Latitude'
-            Exclude      = @('Latitude')
-            Override     = @{}
-            Warnings     = @( 'InvalidInput:Latitude missing' )
-            WarningTypes = @( 'InvalidInput' )
-            WarningCount = 1
+            Name              = 'Missing Only Latitude'
+            Exclude           = @('Latitude')
+            Override          = @{}
+            Warnings          = @( 'InvalidInput:Latitude missing' )
+            WarningTypes      = @( 'InvalidInput' )
+            WarningCount      = 1
+            CommandCount      = 0
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Missing Latitude & Longitude with SkipMaps true'
-            Exclude      = @('Latitude', 'Longitude')
-            Override     = @{ SkipMapsLookup = $true }
-            Warnings     = @( 'InvalidInput:Latitude missing', 'InvalidInput:Longitude missing' )
-            WarningTypes = @( 'InvalidInput' )
-            WarningCount = 2
+            Name              = 'Missing Latitude & Longitude with SkipMaps true'
+            Exclude           = @('Latitude', 'Longitude')
+            Override          = @{ SkipMapsLookup = $true }
+            Warnings          = @( 'InvalidInput:Latitude missing', 'InvalidInput:Longitude missing' )
+            WarningTypes      = @( 'InvalidInput' )
+            WarningCount      = 2
+            CommandCount      = 0
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Missing CountryOrRegion'
-            Exclude      = @('CountryOrRegion')
-            Override     = @{}
-            Warnings     = @( 'InvalidInput:CountryOrRegion missing', 'InvalidInput:CountryOrRegion not ISO 3166-1 alpha-2 code' )
-            WarningTypes = @( 'InvalidInput', 'MapsValidation', 'MapsValidationDetail' )
-            WarningCount = 4
+            Name              = 'Missing CountryOrRegion'
+            Exclude           = @('CountryOrRegion')
+            Override          = @{}
+            Warnings          = @( 'InvalidInput:CountryOrRegion missing', 'InvalidInput:CountryOrRegion not ISO 3166-1 alpha-2 code' )
+            WarningTypes      = @( 'InvalidInput', 'MapsValidation', 'MapsValidationDetail' )
+            WarningCount      = 4
+            CommandCount      = 0
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 1
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Missing PostalCode with SkipMaps true'
-            Exclude      = @('PostalCode')
-            Override     = @{ SkipMapsLookup = $true }
-            Warnings     = @( 'InvalidInput:PostalCode missing' )
-            WarningTypes = @( 'InvalidInput' )
-            WarningCount = 1
+            Name              = 'Missing PostalCode with SkipMaps true'
+            Exclude           = @('PostalCode')
+            Override          = @{ SkipMapsLookup = $true }
+            Warnings          = @( 'InvalidInput:PostalCode missing' )
+            WarningTypes      = @( 'InvalidInput' )
+            WarningCount      = 1
+            CommandCount      = 0
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Missing StateOrProvince'
-            Exclude      = @('StateOrProvince')
-            Override     = @{}
-            Warnings     = @( 'InvalidInput:StateOrProvince missing' )
-            WarningTypes = @( 'InvalidInput', 'MapsValidation', 'MapsValidationDetail' )
-            WarningCount = 3
+            Name              = 'Missing StateOrProvince'
+            Exclude           = @('StateOrProvince')
+            Override          = @{}
+            Warnings          = @( 'InvalidInput:StateOrProvince missing' )
+            WarningTypes      = @( 'InvalidInput', 'MapsValidation', 'MapsValidationDetail' )
+            WarningCount      = 3
+            CommandCount      = 0
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Missing City'
-            Exclude      = @('City')
-            Override     = @{}
-            Warnings     = @( 'InvalidInput:City missing' )
-            WarningTypes = @( 'InvalidInput', 'MapsValidation', 'MapsValidationDetail' )
-            WarningCount = 3
+            Name              = 'Missing City'
+            Exclude           = @('City')
+            Override          = @{}
+            Warnings          = @( 'InvalidInput:City missing' )
+            WarningTypes      = @( 'InvalidInput', 'MapsValidation', 'MapsValidationDetail' )
+            WarningCount      = 3
+            CommandCount      = 0
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Missing Address'
-            Exclude      = @('Address')
-            Override     = @{}
-            Warnings     = @( 'InvalidInput:Address missing' )
-            WarningTypes = @( 'InvalidInput', 'MapsValidation' )
-            WarningCount = 2
+            Name              = 'Missing Address'
+            Exclude           = @('Address')
+            Override          = @{}
+            Warnings          = @( 'InvalidInput:Address missing' )
+            WarningTypes      = @( 'InvalidInput', 'MapsValidation' )
+            WarningCount      = 2
+            CommandCount      = 0
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 1
+            ExpectedCount     = 1
         }
         @{
-            Name         = 'Missing Company Name'
-            Exclude      = @('CompanyName')
-            Override     = @{}
-            Warnings     = @( 'InvalidInput:CompanyName missing' )
-            WarningTypes = @( 'InvalidInput' )
-            WarningCount = 1
+            Name              = 'Missing Company Name'
+            Exclude           = @('CompanyName')
+            Override          = @{}
+            Warnings          = @( 'InvalidInput:CompanyName missing' )
+            WarningTypes      = @( 'InvalidInput' )
+            WarningCount      = 1
+            CommandCount      = 0
+            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedAddresses = 0
+            ExpectedCount     = 1
         }
     ) {
         BeforeAll {
+            $WVParam = @{ Verbose = $WVerboseFunc.Invoke() }
             $Row = Get-TestRow -PropertiesToExclude $Exclude -OverrideValues $Override
-            InModuleScope -ModuleName $ModuleName { Reset-CsE911Cache }
-            $Changes = @(Get-CsE911NeededChange -LocationConfiguration $Row)
-            $ActualWarnings = (($Changes.Where({ $_.UpdateType -eq 'Source' }) | Select-Object -ExpandProperty ProcessInfo | Select-Object -ExpandProperty Warning) -split ';').Where({ ![string]::IsNullOrEmpty($_) })
+            InModuleScope -ModuleName $ModuleName { Reset-CsE911Cache -Verbose:$Verbose } -Parameters $WVParam
+            $Changes = @(Get-CsE911NeededChange -LocationConfiguration $Row @WVParam)
+            $ActualWarnings = (@($Changes.Where({ $_.UpdateType -eq 'Source' }).ProcessInfo.Warning) -split ';').Where({ ![string]::IsNullOrEmpty($_) })
             $ActualTypes = ($ActualWarnings.ForEach({ ($_ -split ':')[0] }) | Sort-Object -Unique).Where({ ![string]::IsNullOrEmpty($_) })
-            $CommandCount = if ($ActualWarnings.Count -gt 0) { 0 } elseif ([string]::IsNullOrEmpty($Row.Location)) { 2 } else { 3 }
-            $ExpectedCount = 1
             $ActualCommands = $Changes.Where({ $_.UpdateType -eq 'Online' })
+            Write-Verbose "Testing Row: $($Row | Select-Object * | ConvertTo-Json -Compress -Depth 1 -WarningAction SilentlyContinue)" @WVParam
         }
         It 'Generates exactly <CommandCount> commands' {
+            Write-Verbose "Commands Generated: $($ActualCommands.Count)" @WVParam
+            foreach ($Command in $ActualCommands) { Write-Verbose "  Command: $($Command.ProcessInfo.ToString())" @WVParam }
             $ActualCommands.Count | Should -Be $CommandCount
         }
         It 'Issues exactly <WarningCount> warnings' {
+            Write-Verbose "Warnings Generated: $($ActualWarnings.Count)" @WVParam
+            foreach ($Warning in $ActualWarnings) { Write-Verbose "  Warning: $Warning" @WVParam }
             $ActualWarnings.Count | Should -Be $WarningCount
         }
         $Warnings | ForEach-Object {
             It 'Issues the specific warning: <Warning>' -TestCases @{ 'Warning' = $_ } {
-                if (!($Warning -in $ActualWarnings)) {
-                    Write-Host $ActualWarnings -Separator ';'
-                }
+                Write-Verbose "Warning: $Warning is expected: $($Warning -in $ActualWarnings)" @WVParam
                 $Warning -in $ActualWarnings | Should -Be $true
             }
         }
@@ -696,35 +850,45 @@ Describe 'Get-CsE911NeededChange' {
         }
         $WarningTypes | ForEach-Object {
             It 'Issues a warning of type: <Type>' -TestCases @{ 'Type' = $_ } {
-                if (!($Type -in $ActualTypes)) {
-                    Write-Host $ActualTypes -Separator ';'
-                }
+                Write-Verbose "Warning Type: $Type is expected: $($Type -in $ActualTypes)" @WVParam
                 $Type -in $ActualTypes | Should -Be $true
             }
         }
         It 'OnlineAddresses should contain <OnlineAddresses> items' {
-            InModuleScope -ModuleName $ModuleName { [E911ModuleState]::OnlineAddresses.Values.Count } | Should -Be $OnlineAddresses
+            $d = InModuleScope -ModuleName $ModuleName { [E911ModuleState]::OnlineAddresses }
+            Write-Verbose "OnlineAddresses: $($d.Count)" @WVParam
+            foreach ($k in $d.Keys) { Write-Verbose "  OnlineAddress: ${k}: $($d[$k] | Select-Object * | ConvertTo-Json -Compress -Depth 1 -WarningAction SilentlyContinue)" @WVParam }
+            $d.Count | Should -Be $OnlineAddresses
         }
         It 'OnlineLocations should contain <OnlineLocations> items' {
-            InModuleScope -ModuleName $ModuleName { [E911ModuleState]::OnlineLocations.Values.Count } | Should -Be $OnlineLocations
+            $d = InModuleScope -ModuleName $ModuleName { [E911ModuleState]::OnlineLocations }
+            Write-Verbose "OnlineLocations: $($d.Count)" @WVParam
+            foreach ($k in $d.Keys) { Write-Verbose "  OnlineLocation: ${k}: $($d[$k] | Select-Object * | ConvertTo-Json -Compress -Depth 1 -WarningAction SilentlyContinue)" @WVParam }
+            $d.Count | Should -Be $OnlineLocations
         }
         It 'OnlineNetworkObjects should contain <OnlineNetworkObjects> items' {
-            InModuleScope -ModuleName $ModuleName { [E911ModuleState]::OnlineNetworkObjects.Values.Count } | Should -Be $OnlineNetworkObjects
+            $d = InModuleScope -ModuleName $ModuleName { [E911ModuleState]::OnlineNetworkObjects }
+            Write-Verbose "OnlineNetworkObjects: $($d.Count)" @WVParam
+            foreach ($k in $d.Keys) { Write-Verbose "  OnlineNetworkObject: ${k}: $($d[$k] | Select-Object * | ConvertTo-Json -Compress -Depth 1 -WarningAction SilentlyContinue)" @WVParam }
+            $d.Count | Should -Be $OnlineNetworkObjects
         }
-        It 'Addresses should contain <ExpectedCount> items' {
-            InModuleScope -ModuleName $ModuleName { [E911ModuleState]::Addresses.Values.Count } | Should -Be $ExpectedCount
+        It 'Addresses should contain <ExpectedAddresses> items' {
+            $d = InModuleScope -ModuleName $ModuleName { [E911ModuleState]::Addresses }
+            Write-Verbose "Addresses: $($d.Count)" @WVParam
+            foreach ($k in $d.Keys) { Write-Verbose "  Address: ${k}: $($d[$k] | Select-Object * | ConvertTo-Json -Compress -Depth 1 -WarningAction SilentlyContinue)" @WVParam }
+            $d.Count | Should -Be $ExpectedAddresses
         }
-        It 'Locations should contain <ExpectedCount> items' {
-            InModuleScope -ModuleName $ModuleName { [E911ModuleState]::Locations.Values.Count } | Should -Be $ExpectedCount
+        It 'Locations should contain <ExpectedLocations> items' {
+            $d = InModuleScope -ModuleName $ModuleName { [E911ModuleState]::Locations }
+            Write-Verbose "Locations: $($d.Count)" @WVParam
+            foreach ($k in $d.Keys) { Write-Verbose "  Location: ${k}: $($d[$k] | Select-Object * | ConvertTo-Json -Compress -Depth 1 -WarningAction SilentlyContinue)" @WVParam }
+            $d.Count | Should -Be $ExpectedLocations
         }
         It 'NetworkObjects should contain <ExpectedCount> items' {
-            $T = InModuleScope -ModuleName $ModuleName { [E911ModuleState]::NetworkObjects }
-            if ($T.Count -ne $ExpectedCount) {
-                Write-Host $ActualWarnings -Separator ';'
-                Write-Host ($T.Values.GetEnumerator() | ForEach-Object { $_ | ConvertTo-Json -Compress } ) -Separator "`n"
-                Write-Host ($T.Keys.GetEnumerator() | ForEach-Object { $_ } ) -Separator "`n"
-            }
-            InModuleScope -ModuleName $ModuleName { [E911ModuleState]::NetworkObjects.Values.Count } | Should -Be $ExpectedCount
+            $d = InModuleScope -ModuleName $ModuleName { [E911ModuleState]::NetworkObjects }
+            Write-Verbose "NetworkObjects: $($d.Count)" @WVParam
+            foreach ($k in $d.Keys) { Write-Verbose "  NetworkObject: ${k}: $($d[$k] | Select-Object * | ConvertTo-Json -Compress -Depth 1 -WarningAction SilentlyContinue)" @WVParam }
+            $d.Count | Should -Be $ExpectedCount
         }
     }
     Describe 'Location Change For Existing NetworkObject' {
@@ -840,7 +1004,7 @@ Describe 'Get-CsE911NeededChange' {
             }
             # $Hash = InModuleScope -ModuleName $ModuleName { [E911DataRow]::new($Row).GetHash() }
             $Hash = InModuleScope -ModuleName $ModuleName { [E911DataRow]::GetHash($Row) }
-            InModuleScope -ModuleName $ModuleName { Reset-CsE911Cache  }
+            InModuleScope -ModuleName $ModuleName { Reset-CsE911Cache }
             $Row.EntryHash = $Hash
             $Row.Location += ' changed'
             $Changes = @(Get-CsE911NeededChange -LocationConfiguration $Row )

@@ -4,8 +4,14 @@ function Reset-CsE911Cache {
     end {
         if ($PSCmdlet.ShouldProcess('FlushCaches')) {
             $commandHelper = [PSFunctionHost]::StartNew($PSCmdlet, 'Resetting Caches', [E911ModuleState]::Interval)
-            [E911ModuleState]::FlushCaches($commandHelper)
-            $commandHelper.Complete()
+            try {
+                [E911ModuleState]::FlushCaches($commandHelper)
+            }
+            finally {
+                if ($null -ne $commandHelper) {
+                    $commandHelper.Dispose()
+                }
+            }
         }
     }
 }

@@ -3,7 +3,6 @@ using module '..\..\modules\PSClassExtensions\bin\release\PSClassExtensions\PSCl
 function Set-CsE911OnlineChange {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param (
-        # Parameter help description
         [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
         [ChangeObject[]]
         $PendingChange,
@@ -106,6 +105,7 @@ function Set-CsE911OnlineChange {
                     }
                     if ($PSCmdlet.ShouldProcess($Change.ProcessInfo.ToString())) {
                         $null = Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop
+                        [E911ModuleState]::ShouldClearLIS = $true
                     }
                     if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
                         $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath -WhatIf:$false
@@ -174,6 +174,7 @@ function Set-CsE911OnlineChange {
                     try {
                         if ($PSCmdlet.ShouldProcess($Change.ProcessInfo.ToString())) {
                             $null = Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop
+                            [E911ModuleState]::ShouldClearLIS = $true
                         }
                         if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
                             if (!$ExecutionPlanFileCreated) {

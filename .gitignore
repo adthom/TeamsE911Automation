@@ -1,2 +1,4 @@
 bin/*
 secrets.*
+*.traced.*
+tests/bootstrap*.ps1

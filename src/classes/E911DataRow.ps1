@@ -20,23 +20,6 @@ class E911DataRow {
             $this.Warning.Clear()
         }
 
-        $this._AddCompanyName()
-        $this._AddCompanyTaxId()
-        $this._AddDescription()
-        $this._AddAddress()
-        $this._AddLocation()
-        $this._AddCity()
-        $this._AddStateOrProvince()
-        $this._AddPostalCode()
-        $this._AddCountryOrRegion()
-        $this._AddLatitude()
-        $this._AddLongitude()
-        $this._AddELIN()
-        $this._AddNetworkDescription()
-        $this._AddNetworkObjectType()
-        $this._AddNetworkObjectIdentifier()
-        $this._AddEntryHash()
-
         if ($null -eq $obj) {
             return
         }
@@ -44,7 +27,6 @@ class E911DataRow {
 
         try {
             $this._networkObject = [E911ModuleState]::GetOrCreateNetworkObject($obj, $ShouldValidate)
-            # Write-Host "DataRow $($obj.NetworkObjectIdentifier) Found NetworkObject $($this._networkObject.Id) with hash $($this._networkObject.GetHash())"
         }
         catch {
             $this.Warning.Add($WarnType, "NetworkObject Creation Failed: $($_.Exception.Message)")
@@ -73,23 +55,6 @@ class E911DataRow {
     E911DataRow([E911NetworkObject] $nObj) {
         $this.Warning = [WarningList]::new($nObj.Warning)
         $this._networkObject = $nObj
-
-        $this._AddCompanyName()
-        $this._AddCompanyTaxId()
-        $this._AddDescription()
-        $this._AddAddress()
-        $this._AddLocation()
-        $this._AddCity()
-        $this._AddStateOrProvince()
-        $this._AddPostalCode()
-        $this._AddCountryOrRegion()
-        $this._AddLatitude()
-        $this._AddLongitude()
-        $this._AddELIN()
-        $this._AddNetworkDescription()
-        $this._AddNetworkObjectType()
-        $this._AddNetworkObjectIdentifier()
-        $this._AddEntryHash()
 
         $this.SkipMapsLookup = $nObj._isOnline -and $this.Longitude -ne 0.0 -and $this.Latitude -ne 0.0
 
@@ -169,10 +134,7 @@ class E911DataRow {
     }
 
     [Collections.Generic.List[ChangeObject]] GetChangeCommands([PSFunctionHost]$parent) {
-        $changeHelper = [PSFunctionHost]::new($parent, $this.RowName())
-        $changeHelper.WriteVerbose('Getting Commands...')
-        # $parent.WriteVerbose(('{0}: Getting Commands...' -f $this.RowName()))
-
+        $parent.WriteVerbose('Getting Commands...')
         $l = [Collections.Generic.List[ChangeObject]]::new()
         $GetCommands = $true
         if (!$this.NeedsUpdate() -and (!$this.HasChanged() -and ![E911ModuleState]::ForceOnlineCheck)) {
@@ -188,11 +150,9 @@ class E911DataRow {
         if ($GetCommands) {
             $ac = $this._networkObject._location._address.GetCommand()
             $addressAdded = $false
-            # if (![string]::IsNullOrEmpty($ac) -and !$this._networkObject._location._isOnline) {
             if (![string]::IsNullOrEmpty($ac)) {
                 $addressAdded = $true
-                # $parent.WriteVerbose(('{0}: Address new or changed' -f $this.RowName()))
-                $changeHelper.WriteVerbose('Address new or changed')
+                $parent.WriteVerbose('Address new or changed')
                 $l.Add([ChangeObject]@{
                         UpdateType    = [UpdateType]::Online
                         ProcessInfo   = $ac
@@ -208,8 +168,7 @@ class E911DataRow {
             $locationAdded = $false
             if (![string]::IsNullOrEmpty($lc)) {
                 $locationAdded = $true
-                # $parent.WriteVerbose(('{0}: Location new or changed' -f $this.RowName()))
-                $changeHelper.WriteVerbose('Location new or changed')
+                $parent.WriteVerbose('Location new or changed')
                 $l.Add([ChangeObject]@{
                         UpdateType    = [UpdateType]::Online
                         ProcessInfo   = $lc
@@ -225,8 +184,7 @@ class E911DataRow {
             $networkAdded = $false
             if (![string]::IsNullOrEmpty($nc)) {
                 $networkAdded = $false
-                # $parent.WriteVerbose(('{0}: Network Object new or changed!' -f $this.RowName()))
-                $changeHelper.WriteVerbose('Network Object new or changed!')
+                $parent.WriteVerbose('Network Object new or changed!')
                 $l.Add([ChangeObject]@{
                         UpdateType    = [UpdateType]::Online
                         ProcessInfo   = $nc
@@ -240,7 +198,6 @@ class E911DataRow {
             }
         }
         $l.Add([ChangeObject]::new($this, $d))
-        # $changeHelper.Complete()
         return $l
     }
 
@@ -267,7 +224,7 @@ class E911DataRow {
 
     [string] GetHash() {
         if ([string]::IsNullOrEmpty($this._hash)) {
-            $this._hash = [Hasher]::GetHash($this.ToHashString())
+            $this._hash = [E911DataRow]::GetHash($this._originalRow)
         }
         return $this._hash
     }
@@ -280,84 +237,83 @@ class E911DataRow {
         return [Hasher]::GetHash($hashString)
     }
 
-    hidden [void] _AddCompanyName() {
-        $this | Add-Member -Name CompanyName -MemberType ScriptProperty -Value {
-            return $this._networkObject._location.CompanyName
-        }
-    }
-    hidden [void] _AddCompanyTaxId() {
-        $this | Add-Member -Name CompanyTaxId -MemberType ScriptProperty -Value {
-            return $this._networkObject._location.CompanyTaxId
-        }
-    }
-    hidden [void] _AddDescription() {
-        $this | Add-Member -Name Description -MemberType ScriptProperty -Value {
-            return $this._networkObject._location.Description
-        }
-    }
-    hidden [void] _AddAddress() {
-        $this | Add-Member -Name Address -MemberType ScriptProperty -Value {
-            return $this._networkObject._location.Address
-        }
-    }
-    hidden [void] _AddLocation() {
-        $this | Add-Member -Name Location -MemberType ScriptProperty -Value {
-            return $this._networkObject._location.Location
-        }
-    }
-    hidden [void] _AddCity() {
-        $this | Add-Member -Name City -MemberType ScriptProperty -Value {
-            return $this._networkObject._location.City
-        }
-    }
-    hidden [void] _AddStateOrProvince() {
-        $this | Add-Member -Name StateOrProvince -MemberType ScriptProperty -Value {
-            return $this._networkObject._location.StateOrProvince
-        }
-    }
-    hidden [void] _AddPostalCode() {
-        $this | Add-Member -Name PostalCode -MemberType ScriptProperty -Value {
-            return $this._networkObject._location.PostalCode
-        }
-    }
-    hidden [void] _AddCountryOrRegion() {
-        $this | Add-Member -Name CountryOrRegion -MemberType ScriptProperty -Value {
-            return $this._networkObject._location.CountryOrRegion
-        }
-    }
-    hidden [void] _AddLatitude() {
-        $this | Add-Member -Name Latitude -MemberType ScriptProperty -Value {
-            return $this._networkObject._location.Latitude
-        }
-    }
-    hidden [void] _AddLongitude() {
-        $this | Add-Member -Name Longitude -MemberType ScriptProperty -Value {
-            return $this._networkObject._location.Longitude
-        }
-    }
-    hidden [void] _AddELIN() {
-        $this | Add-Member -Name Elin -MemberType ScriptProperty -Value {
-            return $this._networkObject._location.Elin
-        }
-    }
-    hidden [void] _AddNetworkDescription() {
-        $this | Add-Member -Name NetworkDescription -MemberType ScriptProperty -Value {
-            return $this._networkObject.Description
-        }
-    }
-    hidden [void] _AddNetworkObjectType() {
-        $this | Add-Member -Name NetworkObjectType -MemberType ScriptProperty -Value {
-            return $this._networkObject.Type
-        }
-    }
-    hidden [void] _AddNetworkObjectIdentifier() {
-        $this | Add-Member -Name NetworkObjectIdentifier -MemberType ScriptProperty -Value {
-            return $this._networkObject.Identifier
-        }
-    }
-    hidden [void] _AddEntryHash() {
-        $this | Add-Member -Name EntryHash -MemberType ScriptProperty -Value {
-            return $this.GetHash()
+    static E911DataRow() {
+        $CustomProperties = @(
+            @{
+                Name  = 'CompanyName' 
+                Value = { return $this._networkObject._location.CompanyName }
+            },
+            @{
+                Name  = 'CompanyTaxId'
+                Value = { return $this._networkObject._location.CompanyTaxId }
+            }
+            @{
+                Name  = 'Description'
+                Value = { return $this._networkObject._location.Description }
+            }
+            @{
+                Name  = 'Address'
+                Value = { return $this._networkObject._location.Address }
+            }
+            @{
+                Name  = 'Location'
+                Value = { return $this._networkObject._location.Location }
+            }
+            @{
+                Name  = 'City'
+                Value = { return $this._networkObject._location.City }
+            }
+            @{
+                Name  = 'StateOrProvince'
+                Value = { return $this._networkObject._location.StateOrProvince }
+            }
+            @{
+                Name  = 'PostalCode'
+                Value = { return $this._networkObject._location.PostalCode }
+            }
+            @{
+                Name  = 'CountryOrRegion'
+                Value = { return $this._networkObject._location.CountryOrRegion }
+            }
+            @{
+                Name  = 'Latitude'
+                Value = { return $this._networkObject._location.Latitude }
+            }
+            @{
+                Name  = 'Longitude'
+                Value = { return $this._networkObject._location.Longitude }
+            }
+            @{
+                Name  = 'ELIN'
+                Value = { return $this._networkObject._location.Elin }
+            }
+            @{
+                Name  = 'NetworkDescription'
+                Value = { return $this._networkObject.Description }
+            }
+            @{
+                Name  = 'NetworkObjectType'
+                Value = { return $this._networkObject.Type }
+            }
+            @{
+                Name  = 'NetworkObjectIdentifier'
+                Value = { return $this._networkObject.Identifier }
+            }
+            @{
+                Name  = 'EntryHash'
+                Value = { return $this.GetHash() }
+            }
+        )
+
+        $Type = [E911DataRow]
+        foreach ($CustomProperty in $CustomProperties) {
+            $TypeDataParams = @{
+                MemberName = $CustomProperty['Name']
+                MemberType = 'ScriptProperty' 
+                Value      = $CustomProperty['Value']
+                Force      = $true
+            }
+            $Type | Update-TypeData @TypeDataParams
         }
     }
 }
