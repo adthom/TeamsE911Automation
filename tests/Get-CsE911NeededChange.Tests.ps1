@@ -513,9 +513,9 @@ Describe 'Get-CsE911NeededChange' {
             Warnings          = @()
             WarningTypes      = @()
             WarningCount      = 0
-            CommandCount      = 1
+            CommandCount      = 2
             ExpectedLocations = 1
-            ExpectedAddresses = 0
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -525,9 +525,9 @@ Describe 'Get-CsE911NeededChange' {
             Warnings          = @()
             WarningTypes      = @()
             WarningCount      = 0
-            CommandCount      = 2
+            CommandCount      = 3
             ExpectedLocations = 1
-            ExpectedAddresses = 0
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -537,9 +537,9 @@ Describe 'Get-CsE911NeededChange' {
             Warnings          = @()
             WarningTypes      = @()
             WarningCount      = 0
-            CommandCount      = 1
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            CommandCount      = 2
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -549,9 +549,9 @@ Describe 'Get-CsE911NeededChange' {
             Warnings          = @()
             WarningTypes      = @()
             WarningCount      = 0
-            CommandCount      = 1
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            CommandCount      = 2
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -561,9 +561,9 @@ Describe 'Get-CsE911NeededChange' {
             Warnings          = @()
             WarningTypes      = @()
             WarningCount      = 0
-            CommandCount      = 1
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            CommandCount      = 2
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -573,9 +573,9 @@ Describe 'Get-CsE911NeededChange' {
             Warnings          = @()
             WarningTypes      = @()
             WarningCount      = 0
-            CommandCount      = 1
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            CommandCount      = 2
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -585,9 +585,9 @@ Describe 'Get-CsE911NeededChange' {
             Warnings          = @()
             WarningTypes      = @()
             WarningCount      = 0
-            CommandCount      = 1
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            CommandCount      = 2
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -597,9 +597,9 @@ Describe 'Get-CsE911NeededChange' {
             Warnings          = @()
             WarningTypes      = @()
             WarningCount      = 0
-            CommandCount      = 1
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            CommandCount      = 2
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -609,9 +609,9 @@ Describe 'Get-CsE911NeededChange' {
             Warnings          = @()
             WarningTypes      = @()
             WarningCount      = 0
-            CommandCount      = 1
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            CommandCount      = 2
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -621,9 +621,9 @@ Describe 'Get-CsE911NeededChange' {
             Warnings          = @()
             WarningTypes      = @()
             WarningCount      = 0
-            CommandCount      = 1
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            CommandCount      = 2
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -633,9 +633,9 @@ Describe 'Get-CsE911NeededChange' {
             Warnings          = @()
             WarningTypes      = @()
             WarningCount      = 0
-            CommandCount      = 1
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            CommandCount      = 2
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -646,8 +646,8 @@ Describe 'Get-CsE911NeededChange' {
             WarningTypes      = @( 'InvalidInput' )
             WarningCount      = 1
             CommandCount      = 0
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -658,8 +658,8 @@ Describe 'Get-CsE911NeededChange' {
             WarningTypes      = @( 'InvalidInput' )
             WarningCount      = 1
             CommandCount      = 0
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -670,8 +670,8 @@ Describe 'Get-CsE911NeededChange' {
             WarningTypes      = @( 'InvalidInput' )
             WarningCount      = 1
             CommandCount      = 0
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -682,7 +682,7 @@ Describe 'Get-CsE911NeededChange' {
             WarningTypes      = @( 'InvalidInput', 'MapsValidation' )
             WarningCount      = 8
             CommandCount      = 0
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedLocations = 1
             ExpectedAddresses = 1
             ExpectedCount     = 1
         }
@@ -694,8 +694,8 @@ Describe 'Get-CsE911NeededChange' {
             WarningTypes      = @( 'InvalidInput' )
             WarningCount      = 1
             CommandCount      = 0
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -706,8 +706,8 @@ Describe 'Get-CsE911NeededChange' {
             WarningTypes      = @( 'InvalidInput' )
             WarningCount      = 1
             CommandCount      = 0
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -718,8 +718,8 @@ Describe 'Get-CsE911NeededChange' {
             WarningTypes      = @( 'InvalidInput' )
             WarningCount      = 1
             CommandCount      = 0
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -730,8 +730,8 @@ Describe 'Get-CsE911NeededChange' {
             WarningTypes      = @( 'InvalidInput' )
             WarningCount      = 1
             CommandCount      = 0
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -742,8 +742,8 @@ Describe 'Get-CsE911NeededChange' {
             WarningTypes      = @( 'InvalidInput' )
             WarningCount      = 2
             CommandCount      = 0
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -754,7 +754,7 @@ Describe 'Get-CsE911NeededChange' {
             WarningTypes      = @( 'InvalidInput', 'MapsValidation', 'MapsValidationDetail' )
             WarningCount      = 4
             CommandCount      = 0
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedLocations = 1
             ExpectedAddresses = 1
             ExpectedCount     = 1
         }
@@ -766,8 +766,8 @@ Describe 'Get-CsE911NeededChange' {
             WarningTypes      = @( 'InvalidInput' )
             WarningCount      = 1
             CommandCount      = 0
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -778,8 +778,8 @@ Describe 'Get-CsE911NeededChange' {
             WarningTypes      = @( 'InvalidInput', 'MapsValidation', 'MapsValidationDetail' )
             WarningCount      = 3
             CommandCount      = 0
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -790,8 +790,8 @@ Describe 'Get-CsE911NeededChange' {
             WarningTypes      = @( 'InvalidInput', 'MapsValidation', 'MapsValidationDetail' )
             WarningCount      = 3
             CommandCount      = 0
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
         @{
@@ -802,7 +802,7 @@ Describe 'Get-CsE911NeededChange' {
             WarningTypes      = @( 'InvalidInput', 'MapsValidation' )
             WarningCount      = 2
             CommandCount      = 0
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
+            ExpectedLocations = 1
             ExpectedAddresses = 1
             ExpectedCount     = 1
         }
@@ -814,8 +814,8 @@ Describe 'Get-CsE911NeededChange' {
             WarningTypes      = @( 'InvalidInput' )
             WarningCount      = 1
             CommandCount      = 0
-            ExpectedLocations = 1 # this really should be zero but the code is not currently structured to do this
-            ExpectedAddresses = 0
+            ExpectedLocations = 1
+            ExpectedAddresses = 1
             ExpectedCount     = 1
         }
     ) {

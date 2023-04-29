@@ -23,7 +23,7 @@ class E911Address {
         $WarnType = [WarningType]::InvalidInput
 
         $this._commandGenerated = $false
-        $addr = [E911Address]::_convertOnlineAddress($obj)
+        $addr = [E911Address]::FormatOnlineAddress($obj)
         $this._isOnline = $true
         $this._hasChanged = $false
         if ([string]::IsNullOrEmpty($addr)) {
@@ -268,9 +268,13 @@ class E911Address {
     }
 
     static [string] GetHash([PSCustomObject] $obj) {
-        $addr = [E911Address]::_convertOnlineAddress($obj)
-        if ([string]::IsNullOrEmpty($addr)) { $addr = $obj.Address }
-        $addr = [E911ModuleState]::AddressValidator.Formatter.TokenizeStreetAddress($addr) -join ' '
+        if ($obj -is [E911Address] -or $obj -is [E911Location] -or $obj -is [E911NetworkObject] -or ![string]::IsNullOrEmpty($obj.Address)) {
+            $addr = [E911Address]::FormatAddress($obj)
+        }
+        else {
+            $addr = [E911Address]::FormatOnlineAddress($obj)
+        }
+        $addr = [AddressFormatter]::Default.GetComparableAddress($addr)
         if ($addr) {
             $addr = $addr.Trim()
         }
@@ -281,15 +285,7 @@ class E911Address {
 
     [string] GetHash() {
         if ([string]::IsNullOrEmpty($this._hash)) {
-            $test = [PSCustomObject]@{
-                Address         = $this.Address.Trim()
-                CompanyName     = $this.CompanyName
-                City            = $this.City
-                StateOrProvince = $this.StateOrProvince
-                PostalCode      = $this.PostalCode
-                CountryOrRegion = $this.CountryOrRegion
-            }
-            $this._hash = [E911Address]::GetHash($test)
+            $this._hash = [E911Address]::GetHash($this)
         }
         return $this._hash
     }
@@ -310,13 +306,6 @@ class E911Address {
                 return $false
             }
         }
-        if ([string]::IsNullOrEmpty($Value1.CivicAddressId) -or [string]::IsNullOrEmpty($Value2.CivicAddressId)) {
-            # don't compare descriptions if we have an online location object
-            return $true
-        }
-        if ($Value1.DefaultLocationId -ne $Value2.DefaultLocationId) {
-            return $false
-        }
         $D1 = if ([string]::IsNullOrEmpty($Value1.Description)) { '' } else { $Value1.Description }
         $D2 = if ([string]::IsNullOrEmpty($Value2.Description)) { '' } else { $Value2.Description }
         return $D1 -eq $D2
@@ -335,38 +324,36 @@ class E911Address {
         return $this.Description -eq $Value.Description -and $this.Elin -eq $Value.Elin
     }
 
-    hidden static [string] _convertOnlineAddress([object]$Online) {
+    hidden static [string] FormatAddress([object] $Online) {
         if ($Online -is [E911NetworkObject]) {
             $Online = $Online._location
         }
         if ($Online -is [E911Location]) {
             $Online = $Online._address
         }
-        if ($Online -is [E911Address] -and (![string]::IsNullOrEmpty($Online.Address) -and [string]::IsNullOrEmpty($Online.StreetName()))) {
-            return $Online.Address
+        return $Online.Address
+    }
+
+    hidden static [string] FormatOnlineAddress([object]$Online) {
+        if ($Online -is [E911NetworkObject]) {
+            $Online = $Online._location
         }
-        if ($null -eq $Online) {
+        if ($Online -is [E911Location]) {
+            $Online = $Online._address
+        }
+        if ($Online -is [E911Address]) {
             return [string]::Empty
         }
-        if (![string]::IsNullOrEmpty($Online.Address) -and [string]::IsNullOrEmpty($Online.StreetName)) {
-            return $Online.Address
+        if (![string]::IsNullOrEmpty($Online.Address) -or [string]::IsNullOrEmpty($Online.StreetName)) {
+            return [string]::Empty
         }
-
-        if ($Online -is [E911Address]) {
-            $addressSb = [Text.StringBuilder]::new().
-            Append($Online.HouseNumber()).
-            Append(' ').Append($Online.HouseNumberSuffix()).
-            Append(' ').Append($Online.StreetName())
-        }
-        else {
-            $addressSb = [Text.StringBuilder]::new().
-            Append($Online.HouseNumber).
+        $addressSb = [Text.StringBuilder]::new().
+                        Append($Online.HouseNumber).
             Append(' ').Append($Online.PreDirectional).
             Append(' ').Append($Online.StreetName).
             Append(' ').Append($Online.StreetSuffix).
             Append(' ').Append($Online.HouseNumberSuffix).
             Append(' ').Append($Online.PostDirectional)
-        }
         do {
             # remove all double spaces until there are no more
             $len = $addressSb.Length

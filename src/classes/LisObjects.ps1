@@ -146,7 +146,7 @@ class LisAddressBase : LisObject {
     hidden [string] $_Address = $null
     static [string] ConvertAddressPartsToAddress([LisAddressBase] $address) {
         if ([string]::IsNullOrEmpty($address._Address)) { 
-            $address._Address = [E911Address]::_convertOnlineAddress($address)
+            $address._Address = [E911Address]::FormatOnlineAddress($address)
         }
         return $address._Address
     }
