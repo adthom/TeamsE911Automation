@@ -152,36 +152,31 @@ class E911Address {
 
     [WarningList] $Warning
 
+    static [Regex] $HNP = [Regex]::new('^(\S*\d+)\D',[Text.RegularExpressions.RegexOptions]::Compiled)
+    # '[A-DF-MO-RT-Va-df-mo-rt-v]' # No N S E W
+    static [Regex] $HNSP = [Regex]::new('^([\.-]?(?:\d+(?:/\d+)?|[A-DF-MO-RT-Va-df-mo-rt-v])) ',[Text.RegularExpressions.RegexOptions]::Compiled)
+    static [Regex] $HNSplit = [Regex]::new('(?!^)\b\s*',[Text.RegularExpressions.RegexOptions]::Compiled)
     hidden [void] ParseAddressToParts() {
         if ([string]::IsNullOrEmpty($this.Address)) { return }
         if (![string]::IsNullOrEmpty($this._streetName)) { return }
         if (![string]::IsNullOrEmpty($this._houseNumber)) { return }
         if (![string]::IsNullOrEmpty($this._houseNumberSuffix)) { return }
 
-        $addressChars = $this.Address.Trim().ToCharArray()
-        $partSB = [Text.StringBuilder]::new()
-        $cursor = 0
-        for (; $cursor -lt $addressChars.Length; $cursor++) {
-            $c = $addressChars[$cursor]
-            if (![char]::IsDigit($c)) { break }
-            $partSB.Append($c)
+        $TempAddr = $this.Address.Trim()
+        $HouseNumberResult = $this::HNP.Match($TempAddr)
+        if ($HouseNumberResult.Success) {
+            $this._houseNumber = $HouseNumberResult.Groups[1].Value
+            $TempAddr = $TempAddr.Substring($this._houseNumber.Length).Trim()
         }
-        $this._houseNumber = $partSB.ToString()
-        while ([char]::IsWhitespace($addressChars[$cursor])) { $cursor++ }
-        $partSB.Clear()
-        for (; $cursor -lt $addressChars.Length; $cursor++) {
-            if ([string]::IsNullOrEmpty($this._houseNumber)) { break }
-            $c = $addressChars[$cursor]
-            if ([char]::IsWhitespace($c)) { break }
-            if (![char]::IsDigit($c) -or $c -notin @('-', '/')) { $cursor--; break }
-            if ($c -in @('N', 'S', 'E', 'W')) { $cursor--; break }
-            if ($addressChars.Length -eq ($cursor + 1) -or [char]::IsLetter($addressChars[$cursor + 1])) { $cursor--; break }
-            $partSB.Append($c)
+        elseif ([int]::TryParse([AddressFormatter]::Default.TokenizeStreetAddress($TempAddr)[0], [ref]$null)) {
+            $this._houseNumber, $TempAddr = $this::HNSplit.Split($TempAddr,2)
         }
-        $this._houseNumberSuffix = $partSB.ToString()
-        while ([Char]::IsWhitespace($addressChars[$cursor])) { $cursor++ }
-
-        $this._streetName = $this.Address.Substring($cursor).Trim()
+        $HouseNumberSuffixResult = $this::HNSP.Match($TempAddr)
+        if ($HouseNumberSuffixResult.Success) {
+            $this._houseNumberSuffix = $HouseNumberSuffixResult.Groups[1].Value
+            $TempAddr = $TempAddr.Substring($this._houseNumberSuffix.Length).Trim()
+        }
+        $this._streetName = $TempAddr
     }
     
     [string] HouseNumber() {
@@ -223,11 +218,14 @@ class E911Address {
             return ''
         }
         $sb = [Text.StringBuilder]::new()
-        $AddressParams = @{
-            StreetName      = $this.StreetName()
-            City            = $this.City
-            StateOrProvince = $this.StateOrProvince
-            CompanyName     = $this.CompanyName
+        $AddressParams = [ordered]@{
+            CompanyName     = $this.CompanyName            
+        }
+        if (![string]::IsNullOrEmpty($this.CompanyTaxId)) {
+            $AddressParams['CompanyTaxId'] = $this.CompanyTaxId
+        }
+        if (![string]::IsNullOrEmpty($this.Description)) {
+            $AddressParams['Description'] = $this.Description
         }
         if (![string]::IsNullOrEmpty($this.HouseNumber())) {
             $AddressParams['HouseNumber'] = $this.HouseNumber()
@@ -235,12 +233,9 @@ class E911Address {
         if (![string]::IsNullOrEmpty($this.HouseNumberSuffix())) {
             $AddressParams['HouseNumberSuffix'] = $this.HouseNumberSuffix()
         }
-        if (![string]::IsNullOrEmpty($this.Description)) {
-            $AddressParams['Description'] = $this.Description
-        }
-        if (![string]::IsNullOrEmpty($this.CompanyTaxId)) {
-            $AddressParams['CompanyTaxId'] = $this.CompanyTaxId
-        }
+        $AddressParams['StreetName'] = $this.StreetName()
+        $AddressParams['City'] = $this.City
+        $AddressParams['StateOrProvince'] = $this.StateOrProvince
         if (![string]::IsNullOrEmpty($this.PostalCode)) {
             $AddressParams['PostalCode'] = $this.PostalCode
         }
@@ -254,6 +249,7 @@ class E911Address {
         if (![string]::IsNullOrEmpty($this.Elin)) {
             $AddressParams['Elin'] = $this.Elin
         }
+        $AddressParams['ErrorAction'] = 'Stop'
         [void]$sb.AppendFormat('$Addresses[''{0}''] = New-CsOnlineLisCivicAddress', $this.Id.VariableName())
         foreach ($Parameter in $AddressParams.Keys) {
             if ($AddressParams[$Parameter].ToString() -match '[''"\s|&<>@#\(\)\$;,`]') {
@@ -263,7 +259,7 @@ class E911Address {
                 [void]$sb.AppendFormat(' -{0} {1}', $Parameter, $AddressParams[$Parameter])
             }
         }
-        $sb.Append(' -ErrorAction Stop | Select-Object -Property CivicAddressId, DefaultLocationId')
+        $sb.Append(' | Select-Object -Property CivicAddressId, DefaultLocationId')
         return $sb.ToString()
     }
 
