@@ -904,6 +904,16 @@ function Reset-CsOnlineLisCache {
         if ($null -ne $script:LisLocationCachePopulated) { $null = $LisLocationCachePopulated.Clear() }
         if ($null -ne $script:LisLocationByCivicAddressCache) { $null = $LisLocationByCivicAddressCache.Clear() }
         if ($null -ne $script:LisLocationByCivicAddressCachePopulated) { $null = $LisLocationByCivicAddressCachePopulated.Clear() }
+
+        if ($null -ne $script:LisPortCache) { $null = $script:LisPortCache.Clear() }
+        if ($null -ne $script:LisPortByLocationCache) { $null = $script:LisPortByLocationCache.Clear() }
+        if ($null -ne $script:LisSwitchCache) { $null = $script:LisSwitchCache.Clear() }
+        if ($null -ne $script:LisSwitchByLocationCache) { $null = $script:LisSwitchByLocationCache.Clear() }
+        if ($null -ne $script:LisSubnetCache) { $null = $script:LisSubnetCache.Clear() }
+        if ($null -ne $script:LisSubnetByLocationCache) { $null = $script:LisSubnetByLocationCache.Clear() }
+        if ($null -ne $script:LisWirelessAccessPointCache) { $null = $script:LisWirelessAccessPointCache.Clear() }
+        if ($null -ne $script:LisWirelessAccessPointByLocationCache) { $null = $script:LisWirelessAccessPointByLocationCache.Clear() }
+
         $script:BulkAddressPopulatedDone = $false
         $script:BulkAddressDone = $false
         $script:BulkLocationPopulatedDone = $false

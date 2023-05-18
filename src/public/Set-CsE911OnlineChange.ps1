@@ -103,12 +103,12 @@ function Set-CsE911OnlineChange {
                             }
                         }
                     }
+                    if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
+                        $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath -WhatIf:$false
+                    }
                     if ($PSCmdlet.ShouldProcess($Change.ProcessInfo.ToString())) {
                         $null = Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop
                         [E911ModuleState]::ShouldClearLIS = $true
-                    }
-                    if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
-                        $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath -WhatIf:$false
                     }
                     $ProcessedChanges.Add($Change.Id)
                     [E911ModuleState]::ShouldClear = $true
@@ -172,16 +172,16 @@ function Set-CsE911OnlineChange {
                         continue
                     }
                     try {
-                        if ($PSCmdlet.ShouldProcess($Change.ProcessInfo.ToString())) {
-                            $null = Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop
-                            [E911ModuleState]::ShouldClearLIS = $true
-                        }
                         if (![string]::IsNullOrEmpty($ExecutionPlanPath)) {
                             if (!$ExecutionPlanFileCreated) {
                                 $ExecutionPlanPath = New-ExecutionPlanFile -ExecutionPlanPath $ExecutionPlanPath
                                 $ExecutionPlanFileCreated = $true
                             }
                             $Change.ProcessInfo.ToString() | Add-Content -Path $ExecutionPlanPath -WhatIf:$false
+                        }
+                        if ($PSCmdlet.ShouldProcess($Change.ProcessInfo.ToString())) {
+                            $null = Invoke-Command -ScriptBlock $Change.ProcessInfo -NoNewScope -ErrorAction Stop
+                            [E911ModuleState]::ShouldClearLIS = $true
                         }
                         $ProcessedChanges.Add($Change.Id)
                         [E911ModuleState]::ShouldClear = $true
