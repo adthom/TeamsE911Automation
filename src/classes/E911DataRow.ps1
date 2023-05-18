@@ -1,3 +1,5 @@
+using namespace System.Collections.Generic
+
 class E911DataRow {
     hidden static [object[]] $Properties = @('CompanyName', 'CompanyTaxId', 'Description', 'Address', 'Location', 'City', 'StateOrProvince', 'PostalCode', 'CountryOrRegion', 'Latitude', 'Longitude', 'Elin', 'NetworkDescription', 'NetworkObjectType', 'NetworkObjectIdentifier', 'SkipMapsLookup')
     # Hidden Properties
@@ -133,9 +135,9 @@ class E911DataRow {
         return $this._networkObject._location.StreetName()
     }
 
-    [Collections.Generic.List[ChangeObject]] GetChangeCommands([PSFunctionHost]$parent) {
+    [List[ChangeObject]] GetChangeCommands([PSFunctionHost]$parent) {
         $parent.WriteVerbose('Getting Commands...')
-        $l = [Collections.Generic.List[ChangeObject]]::new()
+        $l = [List[ChangeObject]]@()
         $GetCommands = $true
         if (!$this.NeedsUpdate() -and (!$this.HasChanged() -and ![E911ModuleState]::ForceOnlineCheck)) {
             $GetCommands = $false
@@ -212,10 +214,12 @@ class E911DataRow {
     }
     [string] ToString() {
         $SelectParams = @{
-            Property = [E911DataRow]::Properties + @(
+            Property = @(
+                '*',
                 @{ Name = 'EntryHash'; Expression = { $this.EntryHash } }, 
                 @{ Name = 'Warning'; Expression = { if ($this.HasWarnings()) { $this.Warning.ToString() } else { '' } } }
             )
+            ExcludeProperty = @('EntryHash', 'Warning')
         }
         $this._string = $this._originalRow | Select-Object @SelectParams | ConvertTo-Json -Compress
         $this._lastWarnCount = $this.Warning.Count()

@@ -789,6 +789,7 @@ class LisObjectHelper {
 
 class LisAddressBaseEqualityComparer : IEqualityComparer[object] {
     [bool] Equals([object]$x, [object]$y) {
+        if ($null -eq $y) { return $false }
         if ($null -eq $x) { return $false }
         if ($x.GetType() -ne $y.GetType()) { return $false }
         $r = $x.CompareTo($y)
@@ -903,6 +904,16 @@ function Reset-CsOnlineLisCache {
         if ($null -ne $script:LisLocationCachePopulated) { $null = $LisLocationCachePopulated.Clear() }
         if ($null -ne $script:LisLocationByCivicAddressCache) { $null = $LisLocationByCivicAddressCache.Clear() }
         if ($null -ne $script:LisLocationByCivicAddressCachePopulated) { $null = $LisLocationByCivicAddressCachePopulated.Clear() }
+
+        if ($null -ne $script:LisPortCache) { $null = $script:LisPortCache.Clear() }
+        if ($null -ne $script:LisPortByLocationCache) { $null = $script:LisPortByLocationCache.Clear() }
+        if ($null -ne $script:LisSwitchCache) { $null = $script:LisSwitchCache.Clear() }
+        if ($null -ne $script:LisSwitchByLocationCache) { $null = $script:LisSwitchByLocationCache.Clear() }
+        if ($null -ne $script:LisSubnetCache) { $null = $script:LisSubnetCache.Clear() }
+        if ($null -ne $script:LisSubnetByLocationCache) { $null = $script:LisSubnetByLocationCache.Clear() }
+        if ($null -ne $script:LisWirelessAccessPointCache) { $null = $script:LisWirelessAccessPointCache.Clear() }
+        if ($null -ne $script:LisWirelessAccessPointByLocationCache) { $null = $script:LisWirelessAccessPointByLocationCache.Clear() }
+
         $script:BulkAddressPopulatedDone = $false
         $script:BulkAddressDone = $false
         $script:BulkLocationPopulatedDone = $false
@@ -932,6 +943,7 @@ function Get-CsOnlineLisCivicAddressInternal {
         if ($null -eq $script:Missing) { $script:Missing = [HashSet[string]]::new([StringComparer]::InvariantCultureIgnoreCase) }
         if ($null -eq $script:LisCivicAddressCache) { $script:LisCivicAddressCache = [Dictionary[string, LisCivicAddress]]::new([StringComparer]::InvariantCultureIgnoreCase) }
         if ($null -eq $script:LisCivicAddressCachePopulated) { $script:LisCivicAddressCachePopulated = [Dictionary[string, LisCivicAddress]]::new([StringComparer]::InvariantCultureIgnoreCase) }
+
         if ($PSCmdlet.ParameterSetName -eq 'Point') {
             if ($Missing.Contains($CivicAddressId)) { return $null }
             $existing = $null
@@ -1014,6 +1026,8 @@ function Get-CsOnlineLisLocationInternal {
         if ($null -eq $script:LisLocationCachePopulated) { $script:LisLocationCachePopulated = [Dictionary[string, LisLocation]]::new([StringComparer]::InvariantCultureIgnoreCase) }
         if ($null -eq $script:LisLocationByCivicAddressCache) { $script:LisLocationByCivicAddressCache = [HashSet[string]]::new([StringComparer]::InvariantCultureIgnoreCase) }
         if ($null -eq $script:LisLocationByCivicAddressCachePopulated) { $script:LisLocationByCivicAddressCachePopulated = [HashSet[string]]::new([StringComparer]::InvariantCultureIgnoreCase) }
+        if ($null -eq $script:CivicAddrBulkStarted) { $script:CivicAddrBulkStarted = $false }
+
         if ($PSCmdlet.ParameterSetName -eq 'Point') {
             if ($Missing.Contains($LocationId)) { return $null }
             $existing = $null
@@ -1029,7 +1043,8 @@ function Get-CsOnlineLisLocationInternal {
             }
         }
         elseif ($PSCmdlet.ParameterSetName -eq 'Bulk') {
-            if ($script:BulkLocationDone) {
+            if ($script:BulkLocationDone -or ($null -eq $CivicAddressId -and $script:CivicAddrBulkStarted)) {
+                if (!$script:BulkLocationDone -and $null -eq $CivicAddressId -and $script:CivicAddrBulkStarted) { $script:CivicAddrBulkStarted = $null; $script:BulkAddressDone = $true }
                 if ($PSBoundParameters.ContainsKey('CivicAddressId')) {
                     if ($Missing.Contains($CivicAddressId)) { return $null }
                     if ($LisLocationByCivicAddressCache.Contains($CivicAddressId)) {
@@ -1085,6 +1100,7 @@ function Get-CsOnlineLisLocationInternal {
         if (!$found -and $PSCmdlet.ParameterSetName -in @('Point', 'PointPopulate')) {
             $null = $Missing.Add($LocationId)
         }
+        if (!$script:BulkLocationPopulatedDone -and !$script:CivicAddrBulkStarted -and $null -eq $CivicAddressId -and $PSCmdlet.ParameterSetName.StartsWith('Bulk')) { $script:CivicAddrBulkStarted = $true }
         $script:BulkLocationPopulatedDone = $BulkLocationPopulatedDone -or ($PSCmdlet.ParameterSetName -eq 'BulkPopulate' -and !$PSBoundParameters.ContainsKey('CivicAddressId') -and $found -and $LisLocationCachePopulated.Count -eq $LisLocationCache.Count)
         $script:BulkLocationDone = $BulkLocationDone -or ($PSCmdlet.ParameterSetName.StartsWith('Bulk') -and !$PSBoundParameters.ContainsKey('CivicAddressId') -and $found)
     }
