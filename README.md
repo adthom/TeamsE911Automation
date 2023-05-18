@@ -21,7 +21,7 @@ $env:AZUREMAPS_API_KEY = '<UPDATE_WITH_API_KEY>'
 
 #### Import TeamsE911Automation module.
 ```powershell
-Import-Module "..\Module\TeamsE911Automation"
+Import-Module ".\TeamsE911Automation"
 ```
 #### Connect to Microsoft Teams
 The TeamsE911Automation module requires using the MicrosoftTeams PowerShell module to execute all required changes/updates against the Teams service
@@ -44,7 +44,7 @@ You can choose to execute each step of the process (Get-CsE911NeededChange => Se
 #### Process the imported csv data to analyze the current teams tenant configuration and prepare changes to online and source data
 ```powershell
 $RawOutput1 = $RawInput1 | Get-CsE911NeededChange | # determine any needed changes
-    Set-CsE911OnlineChange |                        # process online changes (adding any warning data if a provided input failed to process for any reason)
+    Set-CsE911OnlineChange                          # process online changes (adding any warning data if a provided input failed to process for any reason)
 ```
 
 #### Write $RawOutput1 back to source data
