@@ -408,6 +408,7 @@ class LisLocation : LisAddressBase {
         if (![string]::IsNullOrEmpty($lObj.CountryOrRegion) -and ![string]::IsNullOrEmpty($this.CountryOrRegion) -and $lObj.CountryOrRegion -ne $this.CountryOrRegion) {
             return $false
         }
+        # Latitude/Longitude needs to be in hash function or we will have a hash collsion
         if (![string]::IsNullOrEmpty($lObj.Latitude) -and ![string]::IsNullOrEmpty($this.Latitude) -and $lObj.Latitude -ne $this.Latitude) {
             return $false
         }
@@ -745,10 +746,24 @@ class LisObjectHelper {
         }
         Write-Information ('Cached {0} LisLocation objects' -f $lCount)
 
+        if ($aCount -gt 0 -and $lCount -eq 0) {
+            throw 'Unable to load Locations from LIS!'
+        }
+        if ($lCount -gt 0 -and $aCount -eq 0) {
+            throw 'Unable to load Addresses from LIS!'
+        }
+
         # check for orphaned status to force a point query on a cache miss
         Write-Information 'Loading LisNetworkObject cache'
         $nCount = [LisNetworkObject]::GetAll({ !$args[0].IsOrphaned() -or $true }).Count
         Write-Information ('Cached {0} LisNetworkObject objects' -f $nCount)
+
+        if ($nCount -gt 0 -and $lCount -eq 0) {
+            throw 'Unable to load Locations from LIS!'
+        }
+        if ($nCount -gt 0 -and $aCount -eq 0) {
+            throw 'Unable to load Addresses from LIS!'
+        }
     }
     static [void] LoadCache([PSFunctionHost] $parent) {
         [LisObjectHelper]::LoadCache($parent, $false)
@@ -775,11 +790,25 @@ class LisObjectHelper {
             }
             $cacheHelper.WriteVerbose(('Cached {0} LisLocation objects' -f $lCount))
 
+            if ($aCount -gt 0 -and $lCount -eq 0) {
+                throw 'Unable to load Locations from LIS!'
+            }
+            if ($lCount -gt 0 -and $aCount -eq 0) {
+                throw 'Unable to load Addresses from LIS!'
+            }
+
             $cacheHelper.WriteVerbose('Loading LisNetworkObject cache')
             $cacheHelper.ForceUpdate('Loading LisNetworkObject cache')
             # The IsOrphanedCheck forces a point query on a cache miss for locations and addresses
             $nCount = [LisNetworkObject]::GetAll({ !$args[0].IsOrphaned() -or $true }).Count
             $cacheHelper.WriteVerbose(('Cached {0} LisNetworkObject objects' -f $nCount))
+
+            if ($nCount -gt 0 -and $lCount -eq 0) {
+                throw 'Unable to load Locations from LIS!'
+            }
+            if ($nCount -gt 0 -and $aCount -eq 0) {
+                throw 'Unable to load Addresses from LIS!'
+            }
         }
         finally {
             $cacheHelper.Dispose()
@@ -793,7 +822,8 @@ class LisAddressBaseEqualityComparer : IEqualityComparer[object] {
         if ($null -eq $x) { return $false }
         if ($x.GetType() -ne $y.GetType()) { return $false }
         $r = $x.CompareTo($y)
-        if ($r -eq 0) { return $true }
+        # if ($r -eq 0) { return $true }
+        if ($r -ne 0) { return $false }
         return $x.ValueEquals($y)
     }
     [int] GetHashCode([object]$obj) {
@@ -973,31 +1003,86 @@ function Get-CsOnlineLisCivicAddressInternal {
             $PSBoundParameters['PopulateNumberOfVoiceUsers'] = $true
             $PSBoundParameters['PopulateNumberOfTelephoneNumbers'] = $true
         }
+        $PSBoundParameters['ErrorAction'] = 'Stop'
+        try {
+            $found = $false
+            Get-CsOnlineLisCivicAddress @PSBoundParameters | ForEach-Object {
+                $found = $true
+                if ($null -eq $_) { return }
+                $obj = [LisCivicAddress]$_
+                $existing = $null
+                if (($obj.NumberOfTelephoneNumbers -gt -1 -or $obj.NumberOfVoiceUsers -gt -1) -and $LisCivicAddressCache.TryGetValue($obj.CivicAddressId, [ref] $existing)) {
+                    $existing.NumberOfTelephoneNumbers = $obj.NumberOfTelephoneNumbers
+                    $existing.NumberOfVoiceUsers = $obj.NumberOfVoiceUsers
+                    $obj = $existing
+                }
+                else {
+                    $LisCivicAddressCache[$obj.CivicAddressId] = $obj
+                }
+                if ($obj.NumberOfTelephoneNumbers -gt -1 -and $obj.NumberOfVoiceUsers -gt -1) {
+                    $LisCivicAddressCachePopulated[$obj.CivicAddressId] = $obj
+                }
+                $obj
+            }
+            if (!$found -and $PSCmdlet.ParameterSetName -in @('Point', 'PointPopulate')) {
+                $null = $Missing.Add($CivicAddressId)
+            }
+            $script:BulkAddressPopulatedDone = $BulkAddressPopulatedDone -or ($PSCmdlet.ParameterSetName -eq 'BulkPopulate' -and $found -and $LisCivicAddressCachePopulated.Count -eq $LisCivicAddressCache.Count)
+            $script:BulkAddressDone = $BulkAddressDone -or ($PSCmdlet.ParameterSetName.StartsWith('Bulk') -and $found)
+        }
+        catch {}
+    }
+}
 
-        $found = $false
-        Get-CsOnlineLisCivicAddress @PSBoundParameters | ForEach-Object {
-            $found = $true
-            if ($null -eq $_) { return }
-            $obj = [LisCivicAddress]$_
-            $existing = $null
-            if (($obj.NumberOfTelephoneNumbers -gt -1 -or $obj.NumberOfVoiceUsers -gt -1) -and $LisCivicAddressCache.TryGetValue($obj.CivicAddressId, [ref] $existing)) {
-                $existing.NumberOfTelephoneNumbers = $obj.NumberOfTelephoneNumbers
-                $existing.NumberOfVoiceUsers = $obj.NumberOfVoiceUsers
-                $obj = $existing
-            }
-            else {
-                $LisCivicAddressCache[$obj.CivicAddressId] = $obj
-            }
-            if ($obj.NumberOfTelephoneNumbers -gt -1 -and $obj.NumberOfVoiceUsers -gt -1) {
-                $LisCivicAddressCachePopulated[$obj.CivicAddressId] = $obj
-            }
-            $obj
+function Get-CsOnlineLisLocationAll {
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [int]
+        $ResultSize = 10000
+    )
+    end {
+        $GetLocationPaginatedCommand = $ExecutionContext.InvokeCommand.GetCmdletByTypeName('Microsoft.Teams.ConfigAPI.Cmdlets.Generated.Cmdlets.GetCsOnlineLisLocationModern_Get1')
+        $PaginatedGetParams = @{
+            ResultSize = $ResultSize
+            ErrorAction = 'Stop'
         }
-        if (!$found -and $PSCmdlet.ParameterSetName -in @('Point', 'PointPopulate')) {
-            $null = $Missing.Add($CivicAddressId)
+        while ($true) {
+            try {
+                Write-Verbose "Getting first $($PaginatedGetParams['ResultSize']) locations"
+                $CurrentResults = @(& $GetLocationPaginatedCommand @PaginatedGetParams)
+                $CurrentResults | Write-Output
+                break
+            }
+            catch {
+                if ($_.ErrorDetails.Message -ne 'Request Timeout.') {
+                    throw
+                }
+                $PaginatedGetParams['ResultSize'] = $PaginatedGetParams['ResultSize']/2
+                Write-Warning "Request Timeout. Reducing ResultSize to $($PaginatedGetParams['ResultSize']) and retrying."
+            }
         }
-        $script:BulkAddressPopulatedDone = $BulkAddressPopulatedDone -or ($PSCmdlet.ParameterSetName -eq 'BulkPopulate' -and $found -and $LisCivicAddressCachePopulated.Count -eq $LisCivicAddressCache.Count)
-        $script:BulkAddressDone = $BulkAddressDone -or ($PSCmdlet.ParameterSetName.StartsWith('Bulk') -and $found)
+        $Results = $CurrentResults.Count
+        while ($CurrentResults.Count -eq $PaginatedGetParams['ResultSize']) {
+            $PaginatedGetParams['Skip'] = $Results
+            while ($true) {
+                try {
+                    Write-Verbose "Getting next $($PaginatedGetParams['ResultSize']) locations, skipping $($PaginatedGetParams['Skip'])"
+                    $CurrentResults = @(& $GetLocationPaginatedCommand @PaginatedGetParams)
+                    $CurrentResults | Write-Output
+                    break
+                }
+                catch {
+                    if ($_.ErrorDetails.Message -ne 'Request Timeout.') {
+                        throw
+                    }
+                    $PaginatedGetParams['ResultSize'] = $PaginatedGetParams['ResultSize']/2
+                    Write-Warning "Request Timeout. Reducing ResultSize to $($PaginatedGetParams['ResultSize']) and retrying."
+                }
+            }
+            $Results += $CurrentResults.Count
+        }
+        Write-Verbose "Got $Results locations."
     }
 }
 
@@ -1074,35 +1159,43 @@ function Get-CsOnlineLisLocationInternal {
             $PSBoundParameters['PopulateNumberOfVoiceUsers'] = $true
             $PSBoundParameters['PopulateNumberOfTelephoneNumbers'] = $true
         }
-        $found = $false
-        Get-CsOnlineLisLocation @PSBoundParameters | ForEach-Object {
-            $found = $true
-            $obj = [LisLocation]$_
-            if ($null -eq $obj) { return }
-            $existing = $null
-            if (($obj.NumberOfTelephoneNumbers -gt -1 -or $obj.NumberOfVoiceUsers -gt -1) -and $LisLocationCache.TryGetValue($obj.LocationId, [ref] $existing)) {
-                $existing.NumberOfTelephoneNumbers = $obj.NumberOfTelephoneNumbers
-                $existing.NumberOfVoiceUsers = $obj.NumberOfVoiceUsers
-                $obj = $existing
+        $PSBoundParameters['ErrorAction'] = 'Stop'
+        try {
+            $found = $false
+            $Command = $ExecutionContext.InvokeCommand.GetCommand('Get-CsOnlineLisLocation', [CommandTypes]::Function)
+            if ($PSCmdlet.ParameterSetName -eq 'Bulk' -and !$PSBoundParameters.ContainsKey('CivicAddressId')) {
+                $Command = $ExecutionContext.InvokeCommand.GetCommand('Get-CsOnlineLisLocationAll', [CommandTypes]::Function)
             }
-            $LisLocationCache[$obj.LocationId] = $obj
-            if ($obj.NumberOfTelephoneNumbers -gt -1 -and $obj.NumberOfVoiceUsers -gt -1) {
-                $LisLocationCachePopulated[$obj.LocationId] = $obj
-            }
-            if ($PSCmdlet.ParameterSetName.StartsWith('Bulk')) {
-                $null = $LisLocationByCivicAddressCache.Add($obj.CivicAddressId)
-                if ($PSCmdlet.ParameterSetName.EndsWith('Populate')) {
-                    $null = $LisLocationByCivicAddressCachePopulated.Add($obj.CivicAddressId)
+            & $Command @PSBoundParameters | ForEach-Object {
+                $found = $true
+                $obj = [LisLocation]$_
+                if ($null -eq $obj) { return }
+                $existing = $null
+                if (($obj.NumberOfTelephoneNumbers -gt -1 -or $obj.NumberOfVoiceUsers -gt -1) -and $LisLocationCache.TryGetValue($obj.LocationId, [ref] $existing)) {
+                    $existing.NumberOfTelephoneNumbers = $obj.NumberOfTelephoneNumbers
+                    $existing.NumberOfVoiceUsers = $obj.NumberOfVoiceUsers
+                    $obj = $existing
                 }
+                $LisLocationCache[$obj.LocationId] = $obj
+                if ($obj.NumberOfTelephoneNumbers -gt -1 -and $obj.NumberOfVoiceUsers -gt -1) {
+                    $LisLocationCachePopulated[$obj.LocationId] = $obj
+                }
+                if ($PSCmdlet.ParameterSetName.StartsWith('Bulk')) {
+                    $null = $LisLocationByCivicAddressCache.Add($obj.CivicAddressId)
+                    if ($PSCmdlet.ParameterSetName.EndsWith('Populate')) {
+                        $null = $LisLocationByCivicAddressCachePopulated.Add($obj.CivicAddressId)
+                    }
+                }
+                $obj
             }
-            $obj
+            if (!$found -and $PSCmdlet.ParameterSetName -in @('Point', 'PointPopulate')) {
+                $null = $Missing.Add($LocationId)
+            }
+            if (!$script:BulkLocationPopulatedDone -and !$script:CivicAddrBulkStarted -and $null -eq $CivicAddressId -and $PSCmdlet.ParameterSetName.StartsWith('Bulk')) { $script:CivicAddrBulkStarted = $true }
+            $script:BulkLocationPopulatedDone = $BulkLocationPopulatedDone -or ($PSCmdlet.ParameterSetName -eq 'BulkPopulate' -and !$PSBoundParameters.ContainsKey('CivicAddressId') -and $found -and $LisLocationCachePopulated.Count -eq $LisLocationCache.Count)
+            $script:BulkLocationDone = $BulkLocationDone -or ($PSCmdlet.ParameterSetName.StartsWith('Bulk') -and !$PSBoundParameters.ContainsKey('CivicAddressId') -and $found)
         }
-        if (!$found -and $PSCmdlet.ParameterSetName -in @('Point', 'PointPopulate')) {
-            $null = $Missing.Add($LocationId)
-        }
-        if (!$script:BulkLocationPopulatedDone -and !$script:CivicAddrBulkStarted -and $null -eq $CivicAddressId -and $PSCmdlet.ParameterSetName.StartsWith('Bulk')) { $script:CivicAddrBulkStarted = $true }
-        $script:BulkLocationPopulatedDone = $BulkLocationPopulatedDone -or ($PSCmdlet.ParameterSetName -eq 'BulkPopulate' -and !$PSBoundParameters.ContainsKey('CivicAddressId') -and $found -and $LisLocationCachePopulated.Count -eq $LisLocationCache.Count)
-        $script:BulkLocationDone = $BulkLocationDone -or ($PSCmdlet.ParameterSetName.StartsWith('Bulk') -and !$PSBoundParameters.ContainsKey('CivicAddressId') -and $found)
+        catch {}
     }
 }
 
@@ -1147,33 +1240,37 @@ function Get-CsOnlineLisPortInternal {
                 return [LisPort[]]$LisPortCache.Values
             }
         }
-        $found = $false
-        Get-CsOnlineLisPort @PSBoundParameters | ForEach-Object {
-            $found = $true
-            $obj = [LisPort]$_
-            if ($null -eq $obj) { return }
-            $ID = $obj.ChassisId + ';' + $obj.PortId
-            $LisPortCache[$ID] = $obj
-            $locationLookup = $null
-            $lId = $obj.LocationId.ToString()
-            if (!$LisPortByLocationCache.TryGetValue($lId, [ref] $locationLookup)) {
-                $locationLookup = [Dictionary[string, LisPort]]::new([StringComparer]::InvariantCultureIgnoreCase)
-                $LisPortByLocationCache[$lId] = $locationLookup
-            }
-            $locationLookup[$ID] = $obj
-            if ($PSCmdlet.ParameterSetName -eq 'BulkLocation') {
-                if ($lId -eq $LocationId) {
-                    $obj
+        $PSBoundParameters['ErrorAction'] = 'Stop'
+        try {
+            $found = $false
+            Get-CsOnlineLisPort @PSBoundParameters | ForEach-Object {
+                $found = $true
+                $obj = [LisPort]$_
+                if ($null -eq $obj) { return }
+                $ID = $obj.ChassisId + ';' + $obj.PortId
+                $LisPortCache[$ID] = $obj
+                $locationLookup = $null
+                $lId = $obj.LocationId.ToString()
+                if (!$LisPortByLocationCache.TryGetValue($lId, [ref] $locationLookup)) {
+                    $locationLookup = [Dictionary[string, LisPort]]::new([StringComparer]::InvariantCultureIgnoreCase)
+                    $LisPortByLocationCache[$lId] = $locationLookup
                 }
-                return
+                $locationLookup[$ID] = $obj
+                if ($PSCmdlet.ParameterSetName -eq 'BulkLocation') {
+                    if ($lId -eq $LocationId) {
+                        $obj
+                    }
+                    return
+                }
+                $obj
             }
-            $obj
+            if (!$found -and $PSCmdlet.ParameterSetName -eq 'Point') {
+                $ID = $ChassisId + ';' + $PortId
+                $null = $Missing.Add($ID)
+            }
+            $script:BulkPortDone = $script:BulkPortDone -or $PSCmdlet.ParameterSetName -ne 'Point'
         }
-        if (!$found -and $PSCmdlet.ParameterSetName -eq 'Point') {
-            $ID = $ChassisId + ';' + $PortId
-            $null = $Missing.Add($ID)
-        }
-        $script:BulkPortDone = $script:BulkPortDone -or $PSCmdlet.ParameterSetName -ne 'Point'
+        catch {}
     }
 }
 
@@ -1213,31 +1310,35 @@ function Get-CsOnlineLisSwitchInternal {
                 return [LisSwitch[]]$LisSwitchCache.Values
             }
         }
-        $found = $false
-        Get-CsOnlineLisSwitch @PSBoundParameters | ForEach-Object {
-            $found = $true
-            $obj = [LisSwitch]$_
-            if ($null -eq $obj) { return }
-            $LisSwitchCache[$obj.ChassisId] = $obj
-            $locationLookup = $null
-            $lId = $obj.LocationId.ToString()
-            if (!$LisSwitchByLocationCache.TryGetValue($lId, [ref] $locationLookup)) {
-                $locationLookup = [Dictionary[string, LisSwitch]]::new([StringComparer]::InvariantCultureIgnoreCase)
-                $LisSwitchByLocationCache[$lId] = $locationLookup
-            }
-            $locationLookup[$obj.ChassisId] = $obj
-            if ($PSCmdlet.ParameterSetName -eq 'BulkLocation') {
-                if ($lId -eq $LocationId) {
-                    $obj
+        $PSBoundParameters['ErrorAction'] = 'Stop'
+        try {
+            $found = $false
+            Get-CsOnlineLisSwitch @PSBoundParameters | ForEach-Object {
+                $found = $true
+                $obj = [LisSwitch]$_
+                if ($null -eq $obj) { return }
+                $LisSwitchCache[$obj.ChassisId] = $obj
+                $locationLookup = $null
+                $lId = $obj.LocationId.ToString()
+                if (!$LisSwitchByLocationCache.TryGetValue($lId, [ref] $locationLookup)) {
+                    $locationLookup = [Dictionary[string, LisSwitch]]::new([StringComparer]::InvariantCultureIgnoreCase)
+                    $LisSwitchByLocationCache[$lId] = $locationLookup
                 }
-                return
+                $locationLookup[$obj.ChassisId] = $obj
+                if ($PSCmdlet.ParameterSetName -eq 'BulkLocation') {
+                    if ($lId -eq $LocationId) {
+                        $obj
+                    }
+                    return
+                }
+                $obj
             }
-            $obj
+            if (!$found -and $PSCmdlet.ParameterSetName -eq 'Point') {
+                $null = $Missing.Add($ChassisId)
+            }
+            $script:BulkSwitchDone = $script:BulkSwitchDone -or $PSCmdlet.ParameterSetName -ne 'Point'
         }
-        if (!$found -and $PSCmdlet.ParameterSetName -eq 'Point') {
-            $null = $Missing.Add($ChassisId)
-        }
-        $script:BulkSwitchDone = $script:BulkSwitchDone -or $PSCmdlet.ParameterSetName -ne 'Point'
+        catch {}
     }
 }
 
@@ -1277,31 +1378,35 @@ function Get-CsOnlineLisSubnetInternal {
                 return [LisSubnet[]]$LisSubnetCache.Values
             }
         }
-        $found = $false
-        Get-CsOnlineLisSubnet @PSBoundParameters | ForEach-Object {
-            $found = $true
-            $obj = [LisSubnet]$_
-            if ($null -eq $obj) { return }
-            $LisSubnetCache[$obj.Subnet] = $obj
-            $locationLookup = $null
-            $lId = $obj.LocationId.ToString()
-            if (!$LisSubnetByLocationCache.TryGetValue($lId, [ref] $locationLookup)) {
-                $locationLookup = [Dictionary[string, LisSubnet]]::new([StringComparer]::InvariantCultureIgnoreCase)
-                $LisSubnetByLocationCache[$lId] = $locationLookup
-            }
-            $locationLookup[$obj.Subnet] = $obj
-            if ($PSCmdlet.ParameterSetName -eq 'BulkLocation') {
-                if ($lId -eq $LocationId) {
-                    $obj
+        $PSBoundParameters['ErrorAction'] = 'Stop'
+        try {
+            $found = $false
+            Get-CsOnlineLisSubnet @PSBoundParameters | ForEach-Object {
+                $found = $true
+                $obj = [LisSubnet]$_
+                if ($null -eq $obj) { return }
+                $LisSubnetCache[$obj.Subnet] = $obj
+                $locationLookup = $null
+                $lId = $obj.LocationId.ToString()
+                if (!$LisSubnetByLocationCache.TryGetValue($lId, [ref] $locationLookup)) {
+                    $locationLookup = [Dictionary[string, LisSubnet]]::new([StringComparer]::InvariantCultureIgnoreCase)
+                    $LisSubnetByLocationCache[$lId] = $locationLookup
                 }
-                return
+                $locationLookup[$obj.Subnet] = $obj
+                if ($PSCmdlet.ParameterSetName -eq 'BulkLocation') {
+                    if ($lId -eq $LocationId) {
+                        $obj
+                    }
+                    return
+                }
+                $obj
             }
-            $obj
+            if (!$found -and $PSCmdlet.ParameterSetName -eq 'Point') {
+                $null = $Missing.Add($Subnet)
+            }
+            $script:BulkSubnetDone = $script:BulkSubnetDone -or $PSCmdlet.ParameterSetName -ne 'Point'
         }
-        if (!$found -and $PSCmdlet.ParameterSetName -eq 'Point') {
-            $null = $Missing.Add($Subnet)
-        }
-        $script:BulkSubnetDone = $script:BulkSubnetDone -or $PSCmdlet.ParameterSetName -ne 'Point'
+        catch {}
     }
 }
 
@@ -1341,30 +1446,34 @@ function Get-CsOnlineLisWirelessAccessPointInternal {
                 return [LisWirelessAccessPoint[]]$LisWirelessAccessPointCache.Values
             }
         }
-        $found = $false
-        Get-CsOnlineLisWirelessAccessPoint @PSBoundParameters | ForEach-Object {
-            $found = $true
-            $obj = [LisWirelessAccessPoint]$_
-            if ($null -eq $obj) { return }
-            $LisWirelessAccessPointCache[$obj.BSSID] = $obj
-            $locationLookup = $null
-            $lId = $obj.LocationId.ToString()
-            if (!$LisWirelessAccessPointByLocationCache.TryGetValue($lId, [ref] $locationLookup)) {
-                $locationLookup = [Dictionary[string, LisWirelessAccessPoint]]::new([StringComparer]::InvariantCultureIgnoreCase)
-                $LisWirelessAccessPointByLocationCache[$lId] = $locationLookup
-            }
-            $locationLookup[$obj.BSSID] = $obj
-            if ($PSCmdlet.ParameterSetName -eq 'BulkLocation') {
-                if ($lId -eq $LocationId) {
-                    $obj
+        $PSBoundParameters['ErrorAction'] = 'Stop'
+        try {
+            $found = $false
+            Get-CsOnlineLisWirelessAccessPoint @PSBoundParameters | ForEach-Object {
+                $found = $true
+                $obj = [LisWirelessAccessPoint]$_
+                if ($null -eq $obj) { return }
+                $LisWirelessAccessPointCache[$obj.BSSID] = $obj
+                $locationLookup = $null
+                $lId = $obj.LocationId.ToString()
+                if (!$LisWirelessAccessPointByLocationCache.TryGetValue($lId, [ref] $locationLookup)) {
+                    $locationLookup = [Dictionary[string, LisWirelessAccessPoint]]::new([StringComparer]::InvariantCultureIgnoreCase)
+                    $LisWirelessAccessPointByLocationCache[$lId] = $locationLookup
                 }
-                return
+                $locationLookup[$obj.BSSID] = $obj
+                if ($PSCmdlet.ParameterSetName -eq 'BulkLocation') {
+                    if ($lId -eq $LocationId) {
+                        $obj
+                    }
+                    return
+                }
+                $obj
             }
-            $obj
+            if (!$found -and $PSCmdlet.ParameterSetName -eq 'Point') {
+                $null = $Missing.Add($BSSID)
+            }
+            $script:BulkWirelessAccessPointDone = $script:BulkWirelessAccessPointDone -or $PSCmdlet.ParameterSetName -ne 'Point'
         }
-        if (!$found -and $PSCmdlet.ParameterSetName -eq 'Point') {
-            $null = $Missing.Add($BSSID)
-        }
-        $script:BulkWirelessAccessPointDone = $script:BulkWirelessAccessPointDone -or $PSCmdlet.ParameterSetName -ne 'Point'
+        catch {}
     }
 }
