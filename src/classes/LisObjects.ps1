@@ -822,8 +822,8 @@ class LisAddressBaseEqualityComparer : IEqualityComparer[object] {
         if ($null -eq $x) { return $false }
         if ($x.GetType() -ne $y.GetType()) { return $false }
         $r = $x.CompareTo($y)
-        # if ($r -eq 0) { return $true }
-        if ($r -ne 0) { return $false }
+        if ($r -eq 0) { return $true }
+        # if ($r -ne 0) { return $false }
         return $x.ValueEquals($y)
     }
     [int] GetHashCode([object]$obj) {
