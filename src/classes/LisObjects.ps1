@@ -955,6 +955,58 @@ function Reset-CsOnlineLisCache {
     }
 }
 
+function Get-CsOnlineLisCivicAddressAll {
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [int]
+        $ResultSize = 10000
+    )
+    end {
+        $GetCivicAddressPaginatedCommand = $ExecutionContext.InvokeCommand.GetCmdletByTypeName('Microsoft.Teams.ConfigAPI.Cmdlets.Generated.Cmdlets.GetCsOnlineLisCivicAddressModern_Get')
+        $PaginatedGetParams = @{
+            ResultSize = $ResultSize
+            ErrorAction = 'Stop'
+        }
+        while ($true) {
+            try {
+                Write-Verbose "Getting first $($PaginatedGetParams['ResultSize']) civic addresses"
+                $CurrentResults = @(& $GetCivicAddressPaginatedCommand @PaginatedGetParams)
+                $CurrentResults | Write-Output
+                break
+            }
+            catch {
+                if ($_.ErrorDetails.Message -ne 'Request Timeout.') {
+                    throw
+                }
+                $PaginatedGetParams['ResultSize'] = $PaginatedGetParams['ResultSize']/2
+                Write-Warning "Request Timeout. Reducing ResultSize to $($PaginatedGetParams['ResultSize']) and retrying."
+            }
+        }
+        $Results = $CurrentResults.Count
+        while ($CurrentResults.Count -eq $PaginatedGetParams['ResultSize']) {
+            $PaginatedGetParams['Skip'] = $Results
+            while ($true) {
+                try {
+                    Write-Verbose "Getting next $($PaginatedGetParams['ResultSize']) civic addresses, skipping $($PaginatedGetParams['Skip'])"
+                    $CurrentResults = @(& $GetCivicAddressPaginatedCommand @PaginatedGetParams)
+                    $CurrentResults | Write-Output
+                    break
+                }
+                catch {
+                    if ($_.ErrorDetails.Message -ne 'Request Timeout.') {
+                        throw
+                    }
+                    $PaginatedGetParams['ResultSize'] = $PaginatedGetParams['ResultSize']/2
+                    Write-Warning "Request Timeout. Reducing ResultSize to $($PaginatedGetParams['ResultSize']) and retrying."
+                }
+            }
+            $Results += $CurrentResults.Count
+        }
+        Write-Verbose "Got $Results civic addresses."
+    }
+}
+
 function Get-CsOnlineLisCivicAddressInternal {
     [CmdletBinding(DefaultParameterSetName = 'Bulk')]
     [OutputType([LisCivicAddress])]
@@ -1006,7 +1058,11 @@ function Get-CsOnlineLisCivicAddressInternal {
         $PSBoundParameters['ErrorAction'] = 'Stop'
         try {
             $found = $false
-            Get-CsOnlineLisCivicAddress @PSBoundParameters | ForEach-Object {
+            $Command = $ExecutionContext.InvokeCommand.GetCommand('Get-CsOnlineLisCivicAddress', [CommandTypes]::Function)
+            if ($PSCmdlet.ParameterSetName -eq 'Bulk' -and !$PSBoundParameters.ContainsKey('CivicAddressId')) {
+                $Command = $ExecutionContext.InvokeCommand.GetCommand('Get-CsOnlineLisCivicAddressAll', [CommandTypes]::Function)
+            }
+            & $Command @PSBoundParameters | ForEach-Object {
                 $found = $true
                 if ($null -eq $_) { return }
                 $obj = [LisCivicAddress]$_
