@@ -11,7 +11,7 @@ Describe 'Get-CsE911NeededChange' {
         }
 
         # import secrets and connect
-        . "${ModuleRoot}\tests\secrets.ps1"
+        $env:AZUREMAPS_API_KEY = 'DUMMY_SECRET_VALUE'
 
         Get-Module $ModuleName | Remove-Module
         Get-Module MicrosoftTeams | Remove-Module
@@ -468,6 +468,100 @@ Describe 'Get-CsE911NeededChange' {
                 Description = $Description
             }
         }
+        # Mock Azure Maps
+        InModuleScope -ModuleName $ModuleName -ScriptBlock {
+            class MockMapsClient {
+                [string] $BaseAddress = 'https://atlas.microsoft.com/search/address/json'
+
+                hidden static [PSCustomObject] $GoodResult = @{
+                    type = 'Point Address'
+                    id = 'xyU-b3vVzKnm34zjakDnYQ'
+                    score = 11.8789978027
+                    matchConfidence = @{
+                        score = 0.995402642144865
+                    }
+                    address = @{
+                        streetNumber = '1'
+                        streetName = 'Microsoft Way'
+                        municipality = 'Redmond'
+                        countrySecondarySubdivision = 'King'
+                        countrySubdivision = 'WA'
+                        countrySubdivisionName = 'Washington'
+                        countrySubdivisionCode = 'WA'
+                        postalCode = '98052'
+                        extendedPostalCode = '98052-6399'
+                        countryCode = 'US'
+                        country = 'United States'
+                        countryCodeISO3 = 'USA'
+                        freeformAddress = '1 Microsoft Way, Redmond, WA 98052'
+                        localName = 'Redmond'
+                    }
+                    position = @{
+                        lat = 47.63963
+                        lon = -122.12852
+                    }
+                    viewport = @{
+                        topLeftPoint = @{
+                            lat = 47.64257
+                            lon = -122.12698
+                        }
+                        btmRightPoint = @{
+                            lat = 47.64077
+                            lon = -122.12432
+                        }
+                    }
+                    entryPoints = @(
+                        @{
+                            type = 'main'
+                            position = @{
+                                lat = 47.64186
+                                lon = -122.12566
+                            }
+                        }
+                    )
+                }
+                [PSCustomObject] GetStringAsync([string] $Uri) {
+                    $n = [DateTime]::Now
+                    $vparam = Get-Variable WVParam -ValueOnly -ErrorAction SilentlyContinue
+                    if ($null -eq $vparam) {
+                        $vparam = @{ Verbose = $false }
+                    }
+                    $Query = @{}
+                    Write-Verbose "MockMapsClient Uri: '$Uri'" @vparam
+                    $Uri.Split('?',2)[1].Split('&').ForEach({$k,$v = $_.Split('=',2); $Query[$k.Trim()] = [Web.HttpUtility]::UrlDecode("$v").Trim()})
+                    if ([string]::IsNullOrEmpty($Query['query']) -or [string]::IsNullOrEmpty($Query['subscription-key']) -or [string]::IsNullOrEmpty($Query['api-version'])) {
+                        return [PSCustomObject]@{
+                            Result = $null
+                        }
+                    }
+                    $results = @( & {
+                        Write-Verbose "MockMapsClient Query: '$($Query['query'])'" @vparam
+                        if ($Query['query'] -notlike '*Microsoft Way*') {
+                            return
+                        }
+                        [MockMapsClient]::GoodResult
+                    } )
+                    $result = @{
+                        summary = @{
+                            query = "$($Query['query'])".ToLower()
+                            queryType = 'NON_NEAR'
+                            queryTime = ([DateTime]::Now - $n).TotalMilliseconds
+                            numResults = $results.Count
+                            offset = 0
+                            totalResults = $results.Count
+                            fuzzyLevel = 1
+                        }
+                        results = $results
+                    } | ConvertTo-Json -Depth 99 -Compress
+                    Write-Verbose "MockMapsClient Result: '$result'" @vparam
+                    return [PSCustomObject]@{
+                        Result = $result
+                    }
+                }
+            }
+            $null = [AddressValidator]::new()
+            [AddressValidator] | Update-TypeData -Force -MemberType NoteProperty -MemberName MapsClient -Value ([MockMapsClient]::new())
+        }
 
         $OnlineAddresses = @(InModuleScope -ModuleName $ModuleName { Get-CsOnlineLisCivicAddress }).Where({ $null -ne $_ }).Count * 2
         $OnlineLocations = @(InModuleScope -ModuleName $ModuleName { Get-CsOnlineLisLocation }).Where({ $null -ne $_ }).Count * 2
@@ -642,9 +736,9 @@ Describe 'Get-CsE911NeededChange' {
             Name              = 'Subnet with an address that is too long'
             Exclude           = @()
             Override          = @{ NetworkObjectIdentifier = '10.10.10.10.10' }
-            Warnings          = @()
+            Warnings          = @( 'InvalidInput:SubnetId ''''' )
             WarningTypes      = @( 'InvalidInput' )
-            WarningCount      = 1
+            WarningCount      = 2
             CommandCount      = 0
             ExpectedLocations = 1
             ExpectedAddresses = 1
@@ -654,9 +748,9 @@ Describe 'Get-CsE911NeededChange' {
             Name              = 'Switch with an address that is too long'
             Exclude           = @()
             Override          = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'DE-AD-BE-EF-00-01-1' }
-            Warnings          = @()
+            Warnings          = @( 'InvalidInput:ChassisId ''''' )
             WarningTypes      = @( 'InvalidInput' )
-            WarningCount      = 1
+            WarningCount      = 2
             CommandCount      = 0
             ExpectedLocations = 1
             ExpectedAddresses = 1
@@ -666,9 +760,9 @@ Describe 'Get-CsE911NeededChange' {
             Name              = 'Switch with an address containing invalid characters'
             Exclude           = @()
             Override          = @{ NetworkObjectType = 'Switch'; NetworkObjectIdentifier = 'DE-AD-BE-EF-00-ZZ' }
-            Warnings          = @()
+            Warnings          = @( 'InvalidInput:ChassisId ''''' )
             WarningTypes      = @( 'InvalidInput' )
-            WarningCount      = 1
+            WarningCount      = 2
             CommandCount      = 0
             ExpectedLocations = 1
             ExpectedAddresses = 1
@@ -690,9 +784,9 @@ Describe 'Get-CsE911NeededChange' {
             Name              = 'Missing NetworkObjectIdentifier'
             Exclude           = @('NetworkObjectIdentifier')
             Override          = @{}
-            Warnings          = @( 'InvalidInput:NetworkObjectIdentifier missing' )
+            Warnings          = @( 'InvalidInput:NetworkObjectIdentifier missing', 'InvalidInput:SubnetId ''''' )
             WarningTypes      = @( 'InvalidInput' )
-            WarningCount      = 1
+            WarningCount      = 2
             CommandCount      = 0
             ExpectedLocations = 1
             ExpectedAddresses = 1

@@ -1,4 +1,5 @@
 using module '..\..\modules\PSClassExtensions\bin\release\PSClassExtensions\PSClassExtensions.psd1'
+using namespace System.Collections.Generic
 
 function Get-CsE911NeededChange {
     [CmdletBinding()]
@@ -27,7 +28,7 @@ function Get-CsE911NeededChange {
             Assert-TeamsIsConnected
             [E911ModuleState]::ForceOnlineCheck = $ForceOnlineCheck
             [E911ModuleState]::InitializeCaches($commandHelper)
-            $Rows = [Collections.Generic.List[E911DataRow]]@()
+            $Rows = [List[E911DataRow]]@()
             $commandHelper.WriteVerbose('Validating Rows...')
             $validatingHelper = [PSFunctionHost]::StartNew($commandHelper, 'Validating Rows')
             $commandHelper.ForceUpdate('Validating Rows...')
