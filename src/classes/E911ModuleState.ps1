@@ -62,12 +62,24 @@ class E911ModuleState {
             }
             return $Test
         }
+        $NewHash = $New.GetHash()
         if ((!$New._isOnline -and $ShouldValidate) -or $OnlineChanged) {
             $New._hasChanged = $true
-            [E911ModuleState]::Addresses.Add($New.GetHash(), $New)
+            if ([E911ModuleState]::Addresses.TryGetValue($NewHash, [ref] $Test)) {
+                if (![string]::IsNullOrEmpty($New.Description) -and ![string]::IsNullOrEmpty($Test.Description)) {
+                    # Because we already checked if the Hashes match, and we checked if the addresses above were equal, that means we have non-equal addresses with the same hash
+                    # meaning the description is different, so we need to add the description to the warning
+                    $Test.Warning.Add([WarningType]::InvalidInput, "Description '$($New.Description)' does not equal '$($Test.Description)' found in other rows for address $([E911Address]::FormatAddress($New))")
+                }
+                elseif (![string]::IsNullOrEmpty($New.Description) -and [string]::IsNullOrEmpty($Test.Description)) {
+                    $Test.Description = $New.Description
+                }
+                return $Test
+            }
+            [E911ModuleState]::Addresses.Add($NewHash, $New)
         }
         if ($OnlineChanged) {
-            [E911ModuleState]::OnlineAddresses[$New.GetHash()] = $New
+            [E911ModuleState]::OnlineAddresses[$NewHash] = $New
             [E911ModuleState]::OnlineAddresses[$New.Id.ToString().ToLower()] = $New
         }
         return $New

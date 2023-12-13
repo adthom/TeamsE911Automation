@@ -29,6 +29,30 @@ class E911NetworkObject {
         if ($null -eq $this.Warning) {
             $this.Warning = [WarningList]::new()
         }
+        if ($this.Type -eq [NetworkObjectType]::Subnet) {
+            if ($null -eq $this.Identifier.SubnetId) {
+                $this.Warning.Add([WarningType]::InvalidInput, "SubnetId '$($this.Identifier)'")
+            }
+        }
+        elseif ($this.Type -eq [NetworkObjectType]::WirelessAccessPoint) {
+            if ([string]::IsNullOrEmpty($this.Identifier.PhysicalAddress)) {
+                $this.Warning.Add([WarningType]::InvalidInput, "ChassisId '$($this.Identifier)'")
+            }
+        }
+        elseif ($this.Type -eq [NetworkObjectType]::Switch) {
+            if ([string]::IsNullOrEmpty($this.Identifier.PhysicalAddress)) {
+                $this.Warning.Add([WarningType]::InvalidInput, "ChassisId '$($this.Identifier)'")
+            }
+        }
+        elseif ($this.Type -eq [NetworkObjectType]::Port) {
+            if ([string]::IsNullOrEmpty($this.Identifier.PhysicalAddress)) {
+                $this.Warning.Add([WarningType]::InvalidInput, "ChassisId '$($this.Identifier)'")
+            }
+            if ([string]::IsNullOrEmpty($this.Identifier.PortId)) {
+                $this.Warning.Add([WarningType]::InvalidInput, "PortId '$($this.Identifier)'")
+            }
+        }
+
         if ($null -ne $this._location -and $null -ne $this._location.Warning -and $this._location.Warning.HasWarnings()) {
             $this.Warning.AddRange($this._location.Warning)
         }
@@ -168,7 +192,7 @@ class E911NetworkObject {
             [void]$sb.AppendFormat(' -PortId {0}', $this.Identifier.PortId)
         }
         if ($this.Type -eq [NetworkObjectType]::Subnet) {
-            [void]$sb.AppendFormat(' -Subnet {0}', $this.Identifier.SubnetId.ToString())
+            [void]$sb.AppendFormat(' -Subnet {0}', $this.Identifier.SubnetId)
         }
         if ($this.Type -eq [NetworkObjectType]::WirelessAccessPoint) {
             [void]$sb.AppendFormat(' -Bssid {0}', $this.Identifier.PhysicalAddress)
