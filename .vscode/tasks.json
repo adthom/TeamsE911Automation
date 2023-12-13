@@ -40,6 +40,26 @@
                 "kind": "build",
                 "isDefault": true
             }
+        },
+        {
+            "label": "test",
+            "type": "process",
+            "command": "pwsh",
+            "args": [
+                "-NoProfile",
+                "-NoLogo",
+                "-NonInteractive",
+                "-File",
+                "${workspaceFolder}/tests/runtests.ps1"
+            ],
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "dependsOn": [
+                "build DEBUG"
+            ]
         }
     ]
 }
