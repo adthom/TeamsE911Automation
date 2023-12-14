@@ -1,6 +1,6 @@
 ﻿@{
     # only the first 2 components of this will be used to determine the version number on build
-    ModuleVersion        = '0.5'
+    ModuleVersion        = '0.9'
 
     # these fields will be merged with the detected usage from requires statements
     CompatiblePSEditions = 'Desktop', 'Core'
