@@ -70,75 +70,6 @@ Describe 'Get-CsE911NeededChange' {
         Mock -ModuleName $ModuleName -CommandName Assert-TeamsIsConnected -MockWith {
             return
         }
-        Mock -ModuleName $ModuleName -CommandName Get-CsOnlineLisCivicAddress -MockWith {
-            param (
-                [string]
-                $CivicAddressId,
-                [switch]
-                $PopulateNumberOfTelephoneNumbers,
-                [switch]
-                $PopulateNumberOfVoiceUsers
-            )
-            $AddressJson = '[{"AdditionalLocationInfo":null,"City":"Redmond","CityAlias":null,"CivicAddressId":"bf04d062-eef6-4b86-bf19-c9bc428c5d61","CompanyName":"TestCompany","CompanyTaxId":null,"Confidence":null,"CountryOrRegion":"US","CountyOrDistrict":null,"DefaultLocationId":"ffc35422-eb5d-4741-8c46-51fc070bce78","Description":null,"Elin":null,"HouseNumber":"101","HouseNumberSuffix":null,"Latitude":"47.63963","Longitude":"-122.12852","NumberOfTelephoneNumbers":1,"NumberOfVoiceUsers":0,"PartnerId":"00000000-0000-0000-0000-000000000000","PostDirectional":null,"PostalCode":"98052","PreDirectional":null,"StateOrProvince":"WA","StreetName":"Microsoft Way","StreetSuffix":null,"TenantId":"b4299772-a707-4b10-80f2-8a599e1d7500","ValidationStatus":"Validated"},{"AdditionalLocationInfo":null,"City":"Redmond","CityAlias":null,"CivicAddressId":"a279d3d7-f2ad-4369-bd9e-389efaef8a11","CompanyName":"TestCompany","CompanyTaxId":null,"Confidence":null,"CountryOrRegion":"US","CountyOrDistrict":null,"DefaultLocationId":"c9f19766-91d8-4945-82a8-97508395affa","Description":null,"Elin":null,"HouseNumber":"102","HouseNumberSuffix":null,"Latitude":"47.63963","Longitude":"-122.12852","NumberOfTelephoneNumbers":1,"NumberOfVoiceUsers":1,"PartnerId":"00000000-0000-0000-0000-000000000000","PostDirectional":null,"PostalCode":"98052","PreDirectional":null,"StateOrProvince":"WA","StreetName":"Microsoft Way","StreetSuffix":null,"TenantId":"b4299772-a707-4b10-80f2-8a599e1d7500","ValidationStatus":"Validated"}]'
-            $Addresses = $AddressJson | ConvertFrom-Json
-            if (!$PopulateNumberOfTelephoneNumbers) {
-                foreach ($a in $Addresses) {
-                    $a.NumberOfTelephoneNumbers = -1
-                }
-            }
-            if (!$PopulateNumberOfVoiceUsers) {
-                foreach ($a in $Addresses) {
-                    $a.NumberOfVoiceUsers = -1
-                }
-            }
-            if ($CivicAddressId) {
-                $Addresses = $Addresses.Where({ $_.CivicAddressId -eq $CivicAddressId })
-            }
-            return $Addresses
-        }
-        Mock -ModuleName $ModuleName -CommandName Get-CsOnlineLisLocation -MockWith {
-            param (
-                [string]
-                $LocationId,
-                [string]
-                $CivicAddressId,
-                [switch]
-                $PopulateNumberOfTelephoneNumbers,
-                [switch]
-                $PopulateNumberOfVoiceUsers
-            )
-            $LocationJson = '[{"AdditionalLocationInfo":null,"City":"Redmond","CityAlias":null,"CivicAddressId":"bf04d062-eef6-4b86-bf19-c9bc428c5d61","CompanyName":"TestCompany","CompanyTaxId":null,"Confidence":null,"CountryOrRegion":"US","CountyOrDistrict":null,"LocationId":"ffc35422-eb5d-4741-8c46-51fc070bce78","Description":null,"Elin":null,"HouseNumber":"101","HouseNumberSuffix":null,"IsDefault": true,"Latitude":"47.63963","Longitude":"-122.12852","NumberOfTelephoneNumbers":1,"NumberOfVoiceUsers":0,"PartnerId":"00000000-0000-0000-0000-000000000000","PostDirectional":null,"PostalCode":"98052","PreDirectional":null,"StateOrProvince":"WA","StreetName":"Microsoft Way","StreetSuffix":null,"TenantId":"b4299772-a707-4b10-80f2-8a599e1d7500","ValidationStatus":"Validated"},{"AdditionalLocationInfo":null,"City":"Redmond","CityAlias":null,"CivicAddressId":"a279d3d7-f2ad-4369-bd9e-389efaef8a11","CompanyName":"TestCompany","CompanyTaxId":null,"Confidence":null,"CountryOrRegion":"US","CountyOrDistrict":null,"LocationId":"c9f19766-91d8-4945-82a8-97508395affa","Description":null,"Elin":null,"HouseNumber":"102","HouseNumberSuffix":null,"IsDefault": true,"Latitude":"47.63963","Longitude":"-122.12852","NumberOfTelephoneNumbers":1,"NumberOfVoiceUsers":1,"PartnerId":"00000000-0000-0000-0000-000000000000","PostDirectional":null,"PostalCode":"98052","PreDirectional":null,"StateOrProvince":"WA","StreetName":"Microsoft Way","StreetSuffix":null,"TenantId":"b4299772-a707-4b10-80f2-8a599e1d7500","ValidationStatus":"Validated"}]'
-            $Locations = $LocationJson | ConvertFrom-Json
-            if (!$PopulateNumberOfTelephoneNumbers) {
-                foreach ($l in $Locations) {
-                    $l.NumberOfTelephoneNumbers = -1
-                }
-            }
-            if (!$PopulateNumberOfVoiceUsers) {
-                foreach ($l in $Locations) {
-                    $l.NumberOfVoiceUsers = -1
-                }
-            }
-            if ($LocationId) {
-                $Locations = $Locations.Where({ $_.LocationId -eq $LocationId })
-            }
-            if ($CivicAddressId) {
-                $Locations = $Locations.Where({ $_.CivicAddressId -eq $CivicAddressId })
-            }
-            return $Locations
-        }
-        Mock -ModuleName $ModuleName -CommandName Get-CsOnlineLisSwitch -MockWith {
-            return
-        }
-        Mock -ModuleName $ModuleName -CommandName Get-CsOnlineLisPort -MockWith {
-            return
-        }
-        Mock -ModuleName $ModuleName -CommandName Get-CsOnlineLisSubnet -MockWith {
-            return
-        }
-        Mock -ModuleName $ModuleName -CommandName Get-CsOnlineLisWirelessAccessPoint -MockWith {
-            return
-        }
         Mock -ModuleName $ModuleName -CommandName New-CsOnlineLisCivicAddress -MockWith {
             [CmdletBinding(PositionalBinding = $false, SupportsShouldProcess, ConfirmImpact = 'Medium')]
             param(
@@ -466,6 +397,175 @@ Describe 'Get-CsE911NeededChange' {
                 LocationId  = $LocationId
                 Subnet      = $Subnet
                 Description = $Description
+            }
+        }
+
+        # Mock internal scoped functions
+        InModuleScope -ModuleName $ModuleName -ScriptBlock {
+            ${function:Get-CsOnlineLisCivicAddress} = {
+                param (
+                    [string]
+                    $CivicAddressId,
+                    [switch]
+                    $PopulateNumberOfTelephoneNumbers,
+                    [switch]
+                    $PopulateNumberOfVoiceUsers
+                )
+                $AddressJson = '[{"AdditionalLocationInfo":null,"City":"Redmond","CityAlias":null,"CivicAddressId":"bf04d062-eef6-4b86-bf19-c9bc428c5d61","CompanyName":"TestCompany","CompanyTaxId":null,"Confidence":null,"CountryOrRegion":"US","CountyOrDistrict":null,"DefaultLocationId":"ffc35422-eb5d-4741-8c46-51fc070bce78","Description":null,"Elin":null,"HouseNumber":"101","HouseNumberSuffix":null,"Latitude":"47.63963","Longitude":"-122.12852","NumberOfTelephoneNumbers":1,"NumberOfVoiceUsers":0,"PartnerId":"00000000-0000-0000-0000-000000000000","PostDirectional":null,"PostalCode":"98052","PreDirectional":null,"StateOrProvince":"WA","StreetName":"Microsoft Way","StreetSuffix":null,"TenantId":"b4299772-a707-4b10-80f2-8a599e1d7500","ValidationStatus":"Validated"},{"AdditionalLocationInfo":null,"City":"Redmond","CityAlias":null,"CivicAddressId":"a279d3d7-f2ad-4369-bd9e-389efaef8a11","CompanyName":"TestCompany","CompanyTaxId":null,"Confidence":null,"CountryOrRegion":"US","CountyOrDistrict":null,"DefaultLocationId":"c9f19766-91d8-4945-82a8-97508395affa","Description":null,"Elin":null,"HouseNumber":"102","HouseNumberSuffix":null,"Latitude":"47.63963","Longitude":"-122.12852","NumberOfTelephoneNumbers":1,"NumberOfVoiceUsers":1,"PartnerId":"00000000-0000-0000-0000-000000000000","PostDirectional":null,"PostalCode":"98052","PreDirectional":null,"StateOrProvince":"WA","StreetName":"Microsoft Way","StreetSuffix":null,"TenantId":"b4299772-a707-4b10-80f2-8a599e1d7500","ValidationStatus":"Validated"}]'
+                $Addresses = $AddressJson | ConvertFrom-Json
+                if (!$PopulateNumberOfTelephoneNumbers) {
+                    foreach ($a in $Addresses) {
+                        $a.NumberOfTelephoneNumbers = -1
+                    }
+                }
+                if (!$PopulateNumberOfVoiceUsers) {
+                    foreach ($a in $Addresses) {
+                        $a.NumberOfVoiceUsers = -1
+                    }
+                }
+                if ($CivicAddressId) {
+                    $Addresses = $Addresses.Where({ $_.CivicAddressId -eq $CivicAddressId })
+                }
+                return $Addresses
+            }
+            ${function:Get-CsOnlineLisLocation} = {
+                param (
+                    [string]
+                    $LocationId,
+                    [string]
+                    $CivicAddressId,
+                    [switch]
+                    $PopulateNumberOfTelephoneNumbers,
+                    [switch]
+                    $PopulateNumberOfVoiceUsers
+                )
+                $LocationJson = '[{"AdditionalLocationInfo":null,"City":"Redmond","CityAlias":null,"CivicAddressId":"bf04d062-eef6-4b86-bf19-c9bc428c5d61","CompanyName":"TestCompany","CompanyTaxId":null,"Confidence":null,"CountryOrRegion":"US","CountyOrDistrict":null,"LocationId":"ffc35422-eb5d-4741-8c46-51fc070bce78","Description":null,"Elin":null,"HouseNumber":"101","HouseNumberSuffix":null,"IsDefault": true,"Latitude":"47.63963","Longitude":"-122.12852","NumberOfTelephoneNumbers":1,"NumberOfVoiceUsers":0,"PartnerId":"00000000-0000-0000-0000-000000000000","PostDirectional":null,"PostalCode":"98052","PreDirectional":null,"StateOrProvince":"WA","StreetName":"Microsoft Way","StreetSuffix":null,"TenantId":"b4299772-a707-4b10-80f2-8a599e1d7500","ValidationStatus":"Validated"},{"AdditionalLocationInfo":null,"City":"Redmond","CityAlias":null,"CivicAddressId":"a279d3d7-f2ad-4369-bd9e-389efaef8a11","CompanyName":"TestCompany","CompanyTaxId":null,"Confidence":null,"CountryOrRegion":"US","CountyOrDistrict":null,"LocationId":"c9f19766-91d8-4945-82a8-97508395affa","Description":null,"Elin":null,"HouseNumber":"102","HouseNumberSuffix":null,"IsDefault": true,"Latitude":"47.63963","Longitude":"-122.12852","NumberOfTelephoneNumbers":1,"NumberOfVoiceUsers":1,"PartnerId":"00000000-0000-0000-0000-000000000000","PostDirectional":null,"PostalCode":"98052","PreDirectional":null,"StateOrProvince":"WA","StreetName":"Microsoft Way","StreetSuffix":null,"TenantId":"b4299772-a707-4b10-80f2-8a599e1d7500","ValidationStatus":"Validated"}]'
+                $Locations = $LocationJson | ConvertFrom-Json
+                if (!$PopulateNumberOfTelephoneNumbers) {
+                    foreach ($l in $Locations) {
+                        $l.NumberOfTelephoneNumbers = -1
+                    }
+                }
+                if (!$PopulateNumberOfVoiceUsers) {
+                    foreach ($l in $Locations) {
+                        $l.NumberOfVoiceUsers = -1
+                    }
+                }
+                if ($LocationId) {
+                    $Locations = $Locations.Where({ $_.LocationId -eq $LocationId })
+                }
+                if ($CivicAddressId) {
+                    $Locations = $Locations.Where({ $_.CivicAddressId -eq $CivicAddressId })
+                }
+                return $Locations
+            }
+            ${function:Get-CsOnlineLisSwitch} = {
+                param (
+                    [string]
+                    $ChassisID
+                )
+                return
+            }
+            ${function:Get-CsOnlineLisPort} = {
+                param (
+                    [string]
+                    $ChassisID,
+                    [string]
+                    $PortID
+                )
+                return
+            }
+            ${function:Get-CsOnlineLisSubnet} = {
+                param (
+                    [string]
+                    $Subnet
+                )
+                return
+            }
+            ${function:Get-CsOnlineLisWirelessAccessPoint} = {
+                param (
+                    [string]
+                    $BSSID
+                )
+                return
+            }
+            ${function:Get-CsOnlineLisCivicAddressAll} = {
+                param (
+                    [switch]
+                    $PopulateNumberOfTelephoneNumbers,
+                    [switch]
+                    $PopulateNumberOfVoiceUsers
+                )
+                $AddressJson = '[{"AdditionalLocationInfo":null,"City":"Redmond","CityAlias":null,"CivicAddressId":"bf04d062-eef6-4b86-bf19-c9bc428c5d61","CompanyName":"TestCompany","CompanyTaxId":null,"Confidence":null,"CountryOrRegion":"US","CountyOrDistrict":null,"DefaultLocationId":"ffc35422-eb5d-4741-8c46-51fc070bce78","Description":null,"Elin":null,"HouseNumber":"101","HouseNumberSuffix":null,"Latitude":"47.63963","Longitude":"-122.12852","NumberOfTelephoneNumbers":1,"NumberOfVoiceUsers":0,"PartnerId":"00000000-0000-0000-0000-000000000000","PostDirectional":null,"PostalCode":"98052","PreDirectional":null,"StateOrProvince":"WA","StreetName":"Microsoft Way","StreetSuffix":null,"TenantId":"b4299772-a707-4b10-80f2-8a599e1d7500","ValidationStatus":"Validated"},{"AdditionalLocationInfo":null,"City":"Redmond","CityAlias":null,"CivicAddressId":"a279d3d7-f2ad-4369-bd9e-389efaef8a11","CompanyName":"TestCompany","CompanyTaxId":null,"Confidence":null,"CountryOrRegion":"US","CountyOrDistrict":null,"DefaultLocationId":"c9f19766-91d8-4945-82a8-97508395affa","Description":null,"Elin":null,"HouseNumber":"102","HouseNumberSuffix":null,"Latitude":"47.63963","Longitude":"-122.12852","NumberOfTelephoneNumbers":1,"NumberOfVoiceUsers":1,"PartnerId":"00000000-0000-0000-0000-000000000000","PostDirectional":null,"PostalCode":"98052","PreDirectional":null,"StateOrProvince":"WA","StreetName":"Microsoft Way","StreetSuffix":null,"TenantId":"b4299772-a707-4b10-80f2-8a599e1d7500","ValidationStatus":"Validated"}]'
+                $Addresses = $AddressJson | ConvertFrom-Json
+                if (!$PopulateNumberOfTelephoneNumbers) {
+                    foreach ($a in $Addresses) {
+                        $a.NumberOfTelephoneNumbers = -1
+                    }
+                }
+                if (!$PopulateNumberOfVoiceUsers) {
+                    foreach ($a in $Addresses) {
+                        $a.NumberOfVoiceUsers = -1
+                    }
+                }
+                if ($CivicAddressId) {
+                    $Addresses = $Addresses.Where({ $_.CivicAddressId -eq $CivicAddressId })
+                }
+                return $Addresses
+            }
+            ${function:Get-CsOnlineLisLocationAll} = {
+                param (
+                    [string]
+                    $CivicAddressId,
+                    [switch]
+                    $PopulateNumberOfTelephoneNumbers,
+                    [switch]
+                    $PopulateNumberOfVoiceUsers
+                )
+                $LocationJson = '[{"AdditionalLocationInfo":null,"City":"Redmond","CityAlias":null,"CivicAddressId":"bf04d062-eef6-4b86-bf19-c9bc428c5d61","CompanyName":"TestCompany","CompanyTaxId":null,"Confidence":null,"CountryOrRegion":"US","CountyOrDistrict":null,"LocationId":"ffc35422-eb5d-4741-8c46-51fc070bce78","Description":null,"Elin":null,"HouseNumber":"101","HouseNumberSuffix":null,"IsDefault": true,"Latitude":"47.63963","Longitude":"-122.12852","NumberOfTelephoneNumbers":1,"NumberOfVoiceUsers":0,"PartnerId":"00000000-0000-0000-0000-000000000000","PostDirectional":null,"PostalCode":"98052","PreDirectional":null,"StateOrProvince":"WA","StreetName":"Microsoft Way","StreetSuffix":null,"TenantId":"b4299772-a707-4b10-80f2-8a599e1d7500","ValidationStatus":"Validated"},{"AdditionalLocationInfo":null,"City":"Redmond","CityAlias":null,"CivicAddressId":"a279d3d7-f2ad-4369-bd9e-389efaef8a11","CompanyName":"TestCompany","CompanyTaxId":null,"Confidence":null,"CountryOrRegion":"US","CountyOrDistrict":null,"LocationId":"c9f19766-91d8-4945-82a8-97508395affa","Description":null,"Elin":null,"HouseNumber":"102","HouseNumberSuffix":null,"IsDefault": true,"Latitude":"47.63963","Longitude":"-122.12852","NumberOfTelephoneNumbers":1,"NumberOfVoiceUsers":1,"PartnerId":"00000000-0000-0000-0000-000000000000","PostDirectional":null,"PostalCode":"98052","PreDirectional":null,"StateOrProvince":"WA","StreetName":"Microsoft Way","StreetSuffix":null,"TenantId":"b4299772-a707-4b10-80f2-8a599e1d7500","ValidationStatus":"Validated"}]'
+                $Locations = $LocationJson | ConvertFrom-Json
+                if (!$PopulateNumberOfTelephoneNumbers) {
+                    foreach ($l in $Locations) {
+                        $l.NumberOfTelephoneNumbers = -1
+                    }
+                }
+                if (!$PopulateNumberOfVoiceUsers) {
+                    foreach ($l in $Locations) {
+                        $l.NumberOfVoiceUsers = -1
+                    }
+                }
+                if ($CivicAddressId) {
+                    $Locations = $Locations.Where({ $_.CivicAddressId -eq $CivicAddressId })
+                }
+                return $Locations
+            }
+            ${function:Get-CsOnlineLisSwitchByLocation} = {
+                param (
+                    [string]
+                    $LocationId
+                )
+                return
+            }
+            ${function:Get-CsOnlineLisPortByLocation} = {
+                param (
+                    [string]
+                    $LocationId
+                )
+                return
+            }
+            ${function:Get-CsOnlineLisSubnetByLocation} = {
+                param (
+                    [string]
+                    $LocationId
+                )
+                return
+            }
+            ${function:Get-CsOnlineLisWirelessAccessPointByLocation} = {
+                param (
+                    [string]
+                    $LocationId
+                )
+                return
             }
         }
         # Mock Azure Maps
@@ -1028,7 +1128,8 @@ Describe 'Get-CsE911NeededChange' {
             $PortID = 'ge-0/0/1'
             $Description = 'Test Switch Port'
             $NonDefaultLocation = [PSCustomObject]$AddressHash
-            Mock -ModuleName $ModuleName -CommandName Get-CsOnlineLisCivicAddress -MockWith {
+
+            Mock -ModuleName $ModuleName -CommandName Get-CsOnlineLisCivicAddressInternal -MockWith {
                 param (
                     [switch]
                     $PopulateNumberOfTelephoneNumbers,
@@ -1048,7 +1149,7 @@ Describe 'Get-CsE911NeededChange' {
                 }
                 return $Addresses
             }
-            Mock -ModuleName $ModuleName -CommandName Get-CsOnlineLisLocation -MockWith {
+            Mock -ModuleName $ModuleName -CommandName Get-CsOnlineLisLocationInternal -MockWith {
                 param (
                     [switch]
                     $PopulateNumberOfTelephoneNumbers,
@@ -1068,7 +1169,7 @@ Describe 'Get-CsE911NeededChange' {
                 }
                 return $Locations
             }
-            Mock -ModuleName $ModuleName -CommandName Get-CsOnlineLisPort -MockWith {
+            Mock -ModuleName $ModuleName -CommandName Get-CsOnlineLisPortInternal -MockWith {
                 return [PSCustomObject]@{
                     ChassisID   = $ChassisID
                     LocationId  = $OriginalLocationId
@@ -1096,7 +1197,6 @@ Describe 'Get-CsE911NeededChange' {
                 EntryHash               = ''
                 Warning                 = ''
             }
-            # $Hash = InModuleScope -ModuleName $ModuleName { [E911DataRow]::new($Row).GetHash() }
             $Hash = InModuleScope -ModuleName $ModuleName { [E911DataRow]::GetHash($Row) }
             InModuleScope -ModuleName $ModuleName { Reset-CsE911Cache }
             $Row.EntryHash = $Hash

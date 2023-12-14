@@ -937,16 +937,16 @@ function Reset-CsOnlineLisCache {
 
         if ($null -ne $script:LisPortCache) { $null = $script:LisPortCache.Clear() }
         if ($null -ne $script:LisPortByLocationCache) { $null = $script:LisPortByLocationCache.Clear() }
-        if ($null -eq $script:LisPortByLocationBulkDone) { $null = $script:LisPortByLocationBulkDone.Clear() }
+        if ($null -ne $script:LisPortByLocationBulkDone) { $null = $script:LisPortByLocationBulkDone.Clear() }
         if ($null -ne $script:LisSwitchCache) { $null = $script:LisSwitchCache.Clear() }
         if ($null -ne $script:LisSwitchByLocationCache) { $null = $script:LisSwitchByLocationCache.Clear() }
-        if ($null -eq $script:LisSwitchByLocationBulkDone) { $null = $script:LisSwitchByLocationBulkDone.Clear() }
+        if ($null -ne $script:LisSwitchByLocationBulkDone) { $null = $script:LisSwitchByLocationBulkDone.Clear() }
         if ($null -ne $script:LisSubnetCache) { $null = $script:LisSubnetCache.Clear() }
         if ($null -ne $script:LisSubnetByLocationCache) { $null = $script:LisSubnetByLocationCache.Clear() }
-        if ($null -eq $script:LisSubnetByLocationBulkDone) { $null = $script:LisSubnetByLocationBulkDone.Clear() }
+        if ($null -ne $script:LisSubnetByLocationBulkDone) { $null = $script:LisSubnetByLocationBulkDone.Clear() }
         if ($null -ne $script:LisWirelessAccessPointCache) { $null = $script:LisWirelessAccessPointCache.Clear() }
         if ($null -ne $script:LisWirelessAccessPointByLocationCache) { $null = $script:LisWirelessAccessPointByLocationCache.Clear() }
-        if ($null -eq $script:LisWirelessAccessPointByLocationBulkDone) { $null = $script:LisWirelessAccessPointByLocationBulkDone.Clear() }
+        if ($null -ne $script:LisWirelessAccessPointByLocationBulkDone) { $null = $script:LisWirelessAccessPointByLocationBulkDone.Clear() }
 
         $script:BulkAddressPopulatedDone = $false
         $script:BulkAddressDone = $false
@@ -967,9 +967,9 @@ function Get-CsOnlineLisCivicAddressAll {
         $ResultSize = 10000
     )
     end {
-        $GetCivicAddressPaginatedCommand = Get-Command -Name 'Get-CsOnlineLisCivicAddress' -CommandType Function
+        $GetCivicAddressPaginatedCommand = $ExecutionContext.InvokeCommand.GetCommand('Get-CsOnlineLisCivicAddress', [CommandTypes]::Function)
         $SkipParam = 'NumberOfResultsToSkip'
-        if ($GetCivicAddressPaginatedCommand.Module.Version -lt '5.8.0') {
+        if ($GetCivicAddressPaginatedCommand.Module.Version -and $GetCivicAddressPaginatedCommand.Module.Version -lt '5.8.0') {
             $SkipParam = 'Skip'
             $GetCivicAddressPaginatedCommand = $ExecutionContext.InvokeCommand.GetCmdletByTypeName('Microsoft.Teams.ConfigAPI.Cmdlets.Generated.Cmdlets.GetCsOnlineLisCivicAddressModern_Get')
         }
@@ -977,12 +977,11 @@ function Get-CsOnlineLisCivicAddressAll {
             ResultSize = $ResultSize
             ErrorAction = 'Stop'
         }
-        
+        $BatchCount = 0
         while ($true) {
             try {
                 Write-Verbose "Getting first $($PaginatedGetParams['ResultSize']) civic addresses"
-                $CurrentResults = @(& $GetCivicAddressPaginatedCommand @PaginatedGetParams)
-                $CurrentResults | Write-Output
+                & $GetCivicAddressPaginatedCommand @PaginatedGetParams | Foreach-Object { $BatchCount++; $_ } | Write-Output
                 break
             }
             catch {
@@ -993,14 +992,14 @@ function Get-CsOnlineLisCivicAddressAll {
                 Write-Warning "Request Timeout. Reducing ResultSize to $($PaginatedGetParams['ResultSize']) and retrying."
             }
         }
-        $Results = $CurrentResults.Count
-        while ($CurrentResults.Count -eq $PaginatedGetParams['ResultSize']) {
+        $Results = $BatchCount
+        while ($BatchCount -eq $PaginatedGetParams['ResultSize']) {
+            $BatchCount = 0
             $PaginatedGetParams[$SkipParam] = $Results
             while ($true) {
                 try {
                     Write-Verbose "Getting next $($PaginatedGetParams['ResultSize']) civic addresses, skipping $($PaginatedGetParams[$SkipParam])"
-                    $CurrentResults = @(& $GetCivicAddressPaginatedCommand @PaginatedGetParams)
-                    $CurrentResults | Write-Output
+                    & $GetCivicAddressPaginatedCommand @PaginatedGetParams | Foreach-Object { $BatchCount++; $_ } | Write-Output
                     break
                 }
                 catch {
@@ -1011,7 +1010,7 @@ function Get-CsOnlineLisCivicAddressAll {
                     Write-Warning "Request Timeout. Reducing ResultSize to $($PaginatedGetParams['ResultSize']) and retrying."
                 }
             }
-            $Results += $CurrentResults.Count
+            $Results += $BatchCount
         }
         Write-Verbose "Got $Results civic addresses."
     }
@@ -1066,12 +1065,12 @@ function Get-CsOnlineLisCivicAddressInternal {
             $PSBoundParameters['PopulateNumberOfTelephoneNumbers'] = $true
         }
         $PSBoundParameters['ErrorAction'] = 'Stop'
+        $Command = $ExecutionContext.InvokeCommand.GetCommand('Get-CsOnlineLisCivicAddress', [CommandTypes]::Function)
+        if ($PSCmdlet.ParameterSetName -eq 'Bulk' -and !$PSBoundParameters.ContainsKey('CivicAddressId')) {
+            $Command = $ExecutionContext.InvokeCommand.GetCommand('Get-CsOnlineLisCivicAddressAll', [CommandTypes]::Function)
+        }
         try {
             $found = $false
-            $Command = $ExecutionContext.InvokeCommand.GetCommand('Get-CsOnlineLisCivicAddress', [CommandTypes]::Function)
-            if ($PSCmdlet.ParameterSetName -eq 'Bulk' -and !$PSBoundParameters.ContainsKey('CivicAddressId')) {
-                $Command = $ExecutionContext.InvokeCommand.GetCommand('Get-CsOnlineLisCivicAddressAll', [CommandTypes]::Function)
-            }
             & $Command @PSBoundParameters | ForEach-Object {
                 $found = $true
                 if ($null -eq $_) { return }
@@ -1108,9 +1107,9 @@ function Get-CsOnlineLisLocationAll {
         $ResultSize = 10000
     )
     end {
-        $GetLocationPaginatedCommand = Get-Command -Name 'Get-CsOnlineLisCivicAddress' -CommandType Function
+        $GetLocationPaginatedCommand = $ExecutionContext.InvokeCommand.GetCommand('Get-CsOnlineLisLocation', [CommandTypes]::Function)
         $SkipParam = 'NumberOfResultsToSkip'
-        if ($GetLocationPaginatedCommand.Module.Version -lt '5.8.0') {
+        if ($GetLocationPaginatedCommand.Module.Version -and $GetLocationPaginatedCommand.Module.Version -lt '5.8.0') {
             $SkipParam = 'Skip'
             $GetLocationPaginatedCommand = $ExecutionContext.InvokeCommand.GetCmdletByTypeName('Microsoft.Teams.ConfigAPI.Cmdlets.Generated.Cmdlets.GetCsOnlineLisLocationModern_Get1')
         }
@@ -1118,11 +1117,11 @@ function Get-CsOnlineLisLocationAll {
             ResultSize = $ResultSize
             ErrorAction = 'Stop'
         }
+        $BatchCount = 0
         while ($true) {
             try {
                 Write-Verbose "Getting first $($PaginatedGetParams['ResultSize']) locations"
-                $CurrentResults = @(& $GetLocationPaginatedCommand @PaginatedGetParams)
-                $CurrentResults | Write-Output
+                & $GetLocationPaginatedCommand @PaginatedGetParams | Foreach-Object { $BatchCount++; $_ } | Write-Output
                 break
             }
             catch {
@@ -1133,14 +1132,14 @@ function Get-CsOnlineLisLocationAll {
                 Write-Warning "Request Timeout. Reducing ResultSize to $($PaginatedGetParams['ResultSize']) and retrying."
             }
         }
-        $Results = $CurrentResults.Count
-        while ($CurrentResults.Count -eq $PaginatedGetParams['ResultSize']) {
+        $Results = $BatchCount
+        while ($BatchCount -eq $PaginatedGetParams['ResultSize']) {
+            $BatchCount = 0
             $PaginatedGetParams[$SkipParam] = $Results
             while ($true) {
                 try {
                     Write-Verbose "Getting next $($PaginatedGetParams['ResultSize']) locations, skipping $($PaginatedGetParams[$SkipParam])"
-                    $CurrentResults = @(& $GetLocationPaginatedCommand @PaginatedGetParams)
-                    $CurrentResults | Write-Output
+                    & $GetLocationPaginatedCommand @PaginatedGetParams | Foreach-Object { $BatchCount++; $_ } | Write-Output
                     break
                 }
                 catch {
@@ -1151,7 +1150,7 @@ function Get-CsOnlineLisLocationAll {
                     Write-Warning "Request Timeout. Reducing ResultSize to $($PaginatedGetParams['ResultSize']) and retrying."
                 }
             }
-            $Results += $CurrentResults.Count
+            $Results += $BatchCount
         }
         Write-Verbose "Got $Results locations."
     }
@@ -1231,12 +1230,12 @@ function Get-CsOnlineLisLocationInternal {
             $PSBoundParameters['PopulateNumberOfTelephoneNumbers'] = $true
         }
         $PSBoundParameters['ErrorAction'] = 'Stop'
+        $Command = $ExecutionContext.InvokeCommand.GetCommand('Get-CsOnlineLisLocation', [CommandTypes]::Function)
+        if ($PSCmdlet.ParameterSetName -eq 'Bulk' -and !$PSBoundParameters.ContainsKey('CivicAddressId')) {
+            $Command = $ExecutionContext.InvokeCommand.GetCommand('Get-CsOnlineLisLocationAll', [CommandTypes]::Function)
+        }
         try {
             $found = $false
-            $Command = $ExecutionContext.InvokeCommand.GetCommand('Get-CsOnlineLisLocation', [CommandTypes]::Function)
-            if ($PSCmdlet.ParameterSetName -eq 'Bulk' -and !$PSBoundParameters.ContainsKey('CivicAddressId')) {
-                $Command = $ExecutionContext.InvokeCommand.GetCommand('Get-CsOnlineLisLocationAll', [CommandTypes]::Function)
-            }
             & $Command @PSBoundParameters | ForEach-Object {
                 $found = $true
                 $obj = [LisLocation]$_
