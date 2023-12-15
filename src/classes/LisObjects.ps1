@@ -648,7 +648,12 @@ class LisPort : LisNetworkObject {
         return [LisPort[]]@(Get-CsOnlineLisPortInternal).Where({$_})
     }
     static [List[LisPort]] GetAll([Guid] $LocationId) {
-        return [LisPort[]]@(Get-CsOnlineLisPortInternal -LocationId $LocationId.ToString()).Where({$_})
+        $Start = [DateTime]::UtcNow
+        $Result = [LisPort[]]@(Get-CsOnlineLisPortInternal -LocationId $LocationId.ToString()).Where({$_})
+        if ($Result.Count -eq 0 -and ([DateTime]::UtcNow - $Start).TotalSeconds -gt 15) {
+            Write-Error -Message ('Unable to load Ports from LIS for LocationId {0}!' -f $LocationId)
+        }
+        return $Result
     }
     static [LisPort] Get([string] $identifier) {
         $Chassis, $Port = $identifier.Split(';')
@@ -673,7 +678,12 @@ class LisSwitch : LisNetworkObject {
         return [LisSwitch[]]@(Get-CsOnlineLisSwitchInternal).Where({$_})
     }
     static [List[LisSwitch]] GetAll([Guid] $LocationId) {
-        return [LisSwitch[]]@(Get-CsOnlineLisSwitchInternal -LocationId $LocationId.ToString()).Where({$_})
+        $Start = [DateTime]::UtcNow
+        $Result = [LisSwitch[]]@(Get-CsOnlineLisSwitchInternal -LocationId $LocationId.ToString()).Where({$_})
+        if ($Result.Count -eq 0 -and ([DateTime]::UtcNow - $Start).TotalSeconds -gt 15) {
+            Write-Error -Message ('Unable to load Switches from LIS for LocationId {0}!' -f $LocationId)
+        }
+        return $Result
     }
     static [LisSwitch] Get([string] $identifier) {
         return [LisSwitch]@(Get-CsOnlineLisSwitchInternal -ChassisID $identifier).Where({$_})
@@ -694,7 +704,12 @@ class LisSubnet : LisNetworkObject {
         return [LisSubnet[]]@(Get-CsOnlineLisSubnetInternal).Where({$_})
     }
     static [List[LisSubnet]] GetAll([Guid] $LocationId) {
-        return [LisSubnet[]]@(Get-CsOnlineLisSubnetInternal -LocationId $LocationId.ToString()).Where({$_})
+        $Start = [DateTime]::UtcNow
+        $Result = [LisSubnet[]]@(Get-CsOnlineLisSubnetInternal -LocationId $LocationId.ToString()).Where({$_})
+        if ($Result.Count -eq 0 -and ([DateTime]::UtcNow - $Start).TotalSeconds -gt 15) {
+            Write-Error -Message ('Unable to load Subnets from LIS for LocationId {0}!' -f $LocationId)
+        }
+        return $Result
     }
     static [LisSubnet] Get([string] $identifier) {
         return [LisSubnet]@(Get-CsOnlineLisSubnetInternal -Subnet $identifier).Where({$_})
@@ -715,7 +730,12 @@ class LisWirelessAccessPoint : LisNetworkObject {
         return [LisWirelessAccessPoint[]]@(Get-CsOnlineLisWirelessAccessPointInternal).Where({$_})
     }
     static [List[LisWirelessAccessPoint]] GetAll([Guid] $LocationId) {
-        return [LisWirelessAccessPoint[]]@(Get-CsOnlineLisWirelessAccessPointInternal -LocationId $LocationId.ToString()).Where({$_})
+        $Start = [DateTime]::UtcNow
+        $Result = [LisWirelessAccessPoint[]]@(Get-CsOnlineLisWirelessAccessPointInternal -LocationId $LocationId.ToString()).Where({$_})
+        if ($Result.Count -eq 0 -and ([DateTime]::UtcNow - $Start).TotalSeconds -gt 15) {
+            Write-Error -Message ('Unable to load Wireless Access Points from LIS for LocationId {0}!' -f $LocationId)
+        }
+        return $Result
     }
     static [LisWirelessAccessPoint] Get([string] $identifier) {
         return [LisWirelessAccessPoint]@(Get-CsOnlineLisWirelessAccessPointInternal -BSSID $identifier).Where({$_})
@@ -755,7 +775,33 @@ class LisObjectHelper {
 
         # check for orphaned status to force a point query on a cache miss
         Write-Information 'Loading LisNetworkObject cache'
-        $nCount = [LisNetworkObject]::GetAll({ !$args[0].IsOrphaned() -or $true }).Count
+
+        $nCount = 0
+        $totalElapsed = 0.0
+        $timedOut = $false
+        $types = [Stack[Type]]@([LisPort], [LisSwitch], [LisSubnet], [LisWirelessAccessPoint])
+        do {
+            $Start = [DateTime]::UtcNow
+            $networkObjectType = $types.Pop()
+            $tCount = $networkObjectType::GetAll().Count
+            $Elapsed = ([DateTime]::UtcNow - $Start).TotalSeconds
+            Write-Information ('Cached {0} {1} objects in {2:0.0}s' -f $tCount, $networkObjectType.Name, $Elapsed)
+            $nCount += $tCount
+            $totalElapsed += $Elapsed
+            $timedOut = $tCount -eq 0 -and $Elapsed -gt 15
+        } while ($types.Count -gt 0)
+
+        if ($timedOut) {
+            # if we seem to have not enough network objects returned, the bulk export may have timed out, try to get them via the address
+            Write-Warning ('Bulk network object export timed out getting {0} objects in {1:0.0}s, trying to get them via the address' -f $nCount, $totalElapsed)
+            foreach ($address in $civicAddress) {
+                Write-Information ('Getting network objects for {0}' -f $address)
+                $null = $address.GetAssociatedNetworkObjects()
+            }
+            # The IsOrphanedCheck forces a point query on a cache miss for locations and addresses
+            $nCount = [LisNetworkObject]::GetAll({ !$args[0].IsOrphaned() -or $true }).Count
+        }
+
         Write-Information ('Cached {0} LisNetworkObject objects' -f $nCount)
 
         if ($nCount -gt 0 -and $lCount -eq 0) {
@@ -799,8 +845,34 @@ class LisObjectHelper {
 
             $cacheHelper.WriteVerbose('Loading LisNetworkObject cache')
             $cacheHelper.ForceUpdate('Loading LisNetworkObject cache')
-            # The IsOrphanedCheck forces a point query on a cache miss for locations and addresses
-            $nCount = [LisNetworkObject]::GetAll({ !$args[0].IsOrphaned() -or $true }).Count
+            $nCount = 0
+            $totalElapsed = 0.0
+            $timedOut = $false
+            $types = [Stack[Type]]@([LisPort], [LisSwitch], [LisSubnet], [LisWirelessAccessPoint])
+            do {
+                $Start = [DateTime]::UtcNow
+                $networkObjectType = $types.Pop()
+                $tCount = $networkObjectType::GetAll().Count
+                $Elapsed = ([DateTime]::UtcNow - $Start).TotalSeconds
+                $cacheHelper.WriteVerbose(('Cached {0} {1} objects in {2:0.0}s' -f $tCount, $networkObjectType.Name, $Elapsed))
+                $nCount += $tCount
+                $totalElapsed += $Elapsed
+                $timedOut = $tCount -eq 0 -and $Elapsed -gt 15
+            } while ($types.Count -gt 0)
+
+            if ($timedOut) {
+                # if we seem to have not enough network objects returned, the bulk export may have timed out, try to get them via the address
+                $cacheHelper.WriteWarning(('Bulk network object export timed out getting {0} objects in {1:0.0}s, trying to get them via the address' -f $nCount, $totalElapsed))
+                foreach ($address in $civicAddress) {
+                    $cacheHelper.WriteVerbose(('Loading LisNetworkObjects for {0}' -f $address))
+                    $cacheHelper.Update(('Loading LisNetworkObjects for {0}' -f $address))
+                    $null = $address.GetAssociatedNetworkObjects()
+                }
+                $cacheHelper.WriteVerbose('Loading LisNetworkObject cache')
+                $cacheHelper.ForceUpdate('Loading LisNetworkObject cache')
+                # The IsOrphanedCheck forces a point query on a cache miss for locations and addresses
+                $nCount = [LisNetworkObject]::GetAll({ !$args[0].IsOrphaned() -or $true }).Count
+            }
             $cacheHelper.WriteVerbose(('Cached {0} LisNetworkObject objects' -f $nCount))
 
             if ($nCount -gt 0 -and $lCount -eq 0) {
@@ -1395,12 +1467,12 @@ function Get-CsOnlineLisPortInternal {
                 $null = $Missing.Add($ID)
             }
             if ($PSCmdlet.ParameterSetName -eq 'BulkLocation') {
-                $script:LisPortByLocationBulkDone[$LocationId] = $true
+                $script:LisPortByLocationBulkDone[$LocationId] = $found -or $script:LisPortByLocationBulkDone[$LocationId]
             }
             if ($PSCmdlet.ParameterSetName -eq 'Bulk') {
                 $script:BulkPortDone = $script:BulkPortDone -or $found
                 foreach ($l in $script:LisPortByLocationCache.Keys) {
-                    $script:LisPortByLocationBulkDone[$l] = $script:BulkPortDone -or $script:LisPortByLocationBulkDone[$l] -or $found
+                    $script:LisPortByLocationBulkDone[$l] = $script:BulkPortDone -or $script:LisPortByLocationBulkDone[$l]
                 }
             }
         }
@@ -1475,12 +1547,12 @@ function Get-CsOnlineLisSwitchInternal {
                 $null = $Missing.Add($ChassisId)
             }
             if ($PSCmdlet.ParameterSetName -eq 'BulkLocation') {
-                $script:LisSwitchByLocationBulkDone[$LocationId] = $true
+                $script:LisSwitchByLocationBulkDone[$LocationId] = $found -or $script:LisSwitchByLocationBulkDone[$LocationId]
             }
             if ($PSCmdlet.ParameterSetName -eq 'Bulk') {
                 $script:BulkSwitchDone = $script:BulkSwitchDone -or $found
                 foreach ($l in $script:LisPortByLocationCache.Keys) {
-                    $script:LisSwitchByLocationBulkDone[$l] = $script:BulkSwitchDone -or $script:LisSwitchByLocationBulkDone[$l] -or $found
+                    $script:LisSwitchByLocationBulkDone[$l] = $script:BulkSwitchDone -or $script:LisSwitchByLocationBulkDone[$l]
                 }
             }
         }
@@ -1555,12 +1627,12 @@ function Get-CsOnlineLisSubnetInternal {
                 $null = $Missing.Add($Subnet)
             }
             if ($PSCmdlet.ParameterSetName -eq 'BulkLocation') {
-                $script:LisSubnetByLocationCache[$LocationId] = $true
+                $script:LisSubnetByLocationBulkDone[$LocationId] = $found -or $script:LisSubnetByLocationBulkDone[$LocationId]
             }
             if ($PSCmdlet.ParameterSetName -eq 'Bulk') {
                 $script:BulkSubnetDone = $script:BulkSubnetDone -or $found
                 foreach ($l in $script:LisSubnetByLocationCache.Keys) {
-                    $script:LisSubnetByLocationCache[$l] = $script:BulkSubnetDone -or $script:LisSubnetByLocationCache[$l] -or $found
+                    $script:LisSubnetByLocationBulkDone[$l] = $script:BulkSubnetDone -or $script:LisSubnetByLocationBulkDone[$l]
                 }
             }
         }
@@ -1635,12 +1707,12 @@ function Get-CsOnlineLisWirelessAccessPointInternal {
                 $null = $Missing.Add($BSSID)
             }
             if ($PSCmdlet.ParameterSetName -eq 'BulkLocation') {
-                $script:LisWirelessAccessPointByLocationBulkDone[$LocationId] = $true
+                $script:LisWirelessAccessPointByLocationBulkDone[$LocationId] = $found -or $script:LisWirelessAccessPointByLocationBulkDone[$LocationId]
             }
             if ($PSCmdlet.ParameterSetName -eq 'Bulk') {
                 $script:BulkWirelessAccessPointDone = $script:BulkWirelessAccessPointDone -or $found
                 foreach ($l in $script:LisWirelessAccessPointByLocationBulkDone.Keys) {
-                    $script:LisWirelessAccessPointByLocationBulkDone[$l] = $script:BulkWirelessAccessPointDone -or $script:LisWirelessAccessPointByLocationBulkDone[$l] -or $found
+                    $script:LisWirelessAccessPointByLocationBulkDone[$l] = $script:BulkWirelessAccessPointDone -or $script:LisWirelessAccessPointByLocationBulkDone[$l]
                 }
             }
         }
