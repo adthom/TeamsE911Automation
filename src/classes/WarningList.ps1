@@ -8,11 +8,11 @@ class WarningList {
     hidden [int] $_itemCountWhenLastUpdatedValidationFailureCount
 
     WarningList() {
-        $this._items = [List[Warning]]::new()
+        $this._items = [List[Warning]]@()
         $this._mapsValidationFailed = $false
     }
     WarningList([string] $WarningListString) {
-        $this._items = [List[Warning]]::new()
+        $this._items = [List[Warning]]@()
         $this._mapsValidationFailed = $false
         if ([string]::IsNullOrEmpty($WarningListString)) {
             return
