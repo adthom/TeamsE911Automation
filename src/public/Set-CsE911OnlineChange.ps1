@@ -1,4 +1,5 @@
 using module '..\..\modules\PSClassExtensions\bin\release\PSClassExtensions\PSClassExtensions.psd1'
+using namespace System.Collections.Generic
 
 function Set-CsE911OnlineChange {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
@@ -66,8 +67,8 @@ function Set-CsE911OnlineChange {
         }
         $ExecutionPlanFileCreated = $false
         $LookupsInitialized = $false
-        $ProcessedChanges = [Collections.Generic.List[ItemId]]::new()
-        $PendingChanges = [Collections.Generic.Dictionary[int, Collections.Generic.List[ChangeObject]]]::new()
+        $ProcessedChanges = [List[ItemId]]@()
+        $PendingChanges = [Dictionary[int, Collections.Generic.List[ChangeObject]]]::new()
         $commandHelper.WriteInformation('Processing changes with 0 dependencies')
     }
     process {

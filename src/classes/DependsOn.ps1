@@ -4,10 +4,10 @@ using namespace System.Collections.Generic
 class DependsOn {
     hidden [List[ItemId]] $_items
     DependsOn() {
-        $this._items = [List[ItemId]]::new()
+        $this._items = [List[ItemId]]@()
     }
     DependsOn([string] $DependsOnString) {
-        $this._items = [List[ItemId]]::new()
+        $this._items = [List[ItemId]]@()
         if ([string]::IsNullOrEmpty($DependsOnString)) {
             return
         }
@@ -17,7 +17,7 @@ class DependsOn {
         }
     }
     DependsOn([DependsOn] $DependsOn) {
-        $this._items = [List[ItemId]]::new()
+        $this._items = [List[ItemId]]@()
         if ($DependsOn.Count() -eq 0) {
             return
         }
